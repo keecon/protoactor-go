@@ -7,7 +7,7 @@
 package cluster
 
 import (
-	actor "github.com/asynkron/protoactor-go/actor"
+	actor "github.com/keecon/protoactor-go/actor"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

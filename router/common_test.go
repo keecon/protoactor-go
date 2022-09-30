@@ -6,9 +6,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/asynkron/protoactor-go/ctxext"
+	"github.com/keecon/protoactor-go/ctxext"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"github.com/stretchr/testify/mock"
 )
 

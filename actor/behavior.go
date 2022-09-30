@@ -1,6 +1,6 @@
 package actor
 
-import "github.com/asynkron/protoactor-go/log"
+import "github.com/keecon/protoactor-go/log"
 
 type Behavior []ReceiveFunc
 

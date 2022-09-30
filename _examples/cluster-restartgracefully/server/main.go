@@ -10,13 +10,13 @@ import (
 
 	"cluster-restartgracefully/shared"
 
-	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/consul"
-	"github.com/asynkron/protoactor-go/log"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/consul"
+	"github.com/keecon/protoactor-go/log"
+	"github.com/keecon/protoactor-go/remote"
 )
 
 var (

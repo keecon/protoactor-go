@@ -4,8 +4,8 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/asynkron/protoactor-go/internal/queue/mpsc"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/internal/queue/mpsc"
+	"github.com/keecon/protoactor-go/log"
 )
 
 // MailboxMiddleware is an interface for intercepting messages and events in the mailbox

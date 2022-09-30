@@ -10,9 +10,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	logmod "github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	logmod "github.com/keecon/protoactor-go/log"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -132,7 +132,7 @@ func (a *{{ $service.Name }}Actor) Receive(ctx actor.Context) {
 		if a.Timeout > 0 {
 			ctx.SetReceiveTimeout(a.Timeout)
 		}
-	case *actor.ReceiveTimeout:		
+	case *actor.ReceiveTimeout:
 		ctx.Poison(ctx.Self())
 	case *actor.Stopped:
 		a.inner.Terminate(a.ctx)

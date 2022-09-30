@@ -4,8 +4,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/asynkron/protoactor-go/eventstream"
-	"github.com/asynkron/protoactor-go/extensions"
+	"github.com/keecon/protoactor-go/eventstream"
+	"github.com/keecon/protoactor-go/extensions"
 	"github.com/lithammer/shortuuid/v4"
 )
 

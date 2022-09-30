@@ -6,9 +6,9 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/actor/middleware/opentracing"
-	"github.com/asynkron/protoactor-go/router"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor/middleware/opentracing"
+	"github.com/keecon/protoactor-go/router"
 	"github.com/uber/jaeger-client-go"
 	jaegercfg "github.com/uber/jaeger-client-go/config"
 	jaegerlog "github.com/uber/jaeger-client-go/log"

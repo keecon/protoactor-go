@@ -2,7 +2,7 @@ package actor
 
 import (
 	rbqueue "github.com/Workiva/go-datastructures/queue"
-	"github.com/asynkron/protoactor-go/internal/queue/mpsc"
+	"github.com/keecon/protoactor-go/internal/queue/mpsc"
 )
 
 type boundedMailboxQueue struct {

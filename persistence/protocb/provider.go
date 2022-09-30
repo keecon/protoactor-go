@@ -4,9 +4,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/persistence"
 	"github.com/couchbase/gocb"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/persistence"
 )
 
 type Provider struct {

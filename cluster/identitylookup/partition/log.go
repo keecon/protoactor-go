@@ -1,7 +1,7 @@
 package partition
 
 import (
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/log"
 )
 
 var plog = log.New(log.DefaultLevel, "[PARTITION]")

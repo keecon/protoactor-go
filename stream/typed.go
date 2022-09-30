@@ -1,6 +1,6 @@
 package stream
 
-import "github.com/asynkron/protoactor-go/actor"
+import "github.com/keecon/protoactor-go/actor"
 
 type TypedStream[T any] struct {
 	c           chan T

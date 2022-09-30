@@ -5,8 +5,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/log"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"

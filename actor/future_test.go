@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/log"
 	"github.com/stretchr/testify/assert"
 )
 

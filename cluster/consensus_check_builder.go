@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/log"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 

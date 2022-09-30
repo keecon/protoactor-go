@@ -7,8 +7,8 @@ import (
 	"time"
 
 	console "github.com/asynkron/goconsole"
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/scheduler"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/scheduler"
 )
 
 var HelloMessages = []string{

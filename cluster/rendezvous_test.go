@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/log"
 )
 
 func Benchmark_Rendezvous_Get(b *testing.B) {

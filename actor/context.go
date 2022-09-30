@@ -3,7 +3,7 @@ package actor
 import (
 	"time"
 
-	"github.com/asynkron/protoactor-go/ctxext"
+	"github.com/keecon/protoactor-go/ctxext"
 )
 
 // Context contains contextual information for actors

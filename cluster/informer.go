@@ -11,8 +11,8 @@ import (
 	"github.com/asynkron/gofun/set"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/log"
 	"google.golang.org/protobuf/proto"
 )
 

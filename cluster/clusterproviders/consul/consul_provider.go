@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/log"
 	"github.com/hashicorp/consul/api"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/log"
 )
 
 var ProviderShuttingDownError = fmt.Errorf("consul cluster provider is shutting down")

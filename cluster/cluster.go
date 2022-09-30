@@ -5,10 +5,10 @@ import (
 
 	"github.com/asynkron/gofun/set"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/extensions"
-	"github.com/asynkron/protoactor-go/log"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/extensions"
+	"github.com/keecon/protoactor-go/log"
+	"github.com/keecon/protoactor-go/remote"
 )
 
 var extensionID = extensions.NextExtensionID()

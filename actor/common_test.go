@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/asynkron/protoactor-go/ctxext"
+	"github.com/keecon/protoactor-go/ctxext"
 
 	"github.com/stretchr/testify/mock"
 )

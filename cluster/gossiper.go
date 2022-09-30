@@ -10,8 +10,8 @@ import (
 	"github.com/asynkron/gofun/set"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/log"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -26,6 +26,7 @@ type GossipUpdate struct {
 
 // Customary type used to provide consensus check callbacks of any type
 // note: this is equivalent to (for future go v1.18):
+//
 //	type ConsensusChecker[T] func(GossipState, map[string]empty) (bool, T)
 type ConsensusChecker func(*GossipState, map[string]empty) (bool, interface{})
 

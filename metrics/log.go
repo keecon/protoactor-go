@@ -2,7 +2,7 @@
 
 package metrics
 
-import "github.com/asynkron/protoactor-go/log"
+import "github.com/keecon/protoactor-go/log"
 
 var plog = log.New(log.DefaultLevel, "[METRICS]")
 

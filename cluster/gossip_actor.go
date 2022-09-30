@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/asynkron/gofun/set"
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/log"
 )
 
 // convenience customary type to represent an empty value

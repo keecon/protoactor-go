@@ -3,7 +3,7 @@ package cluster
 import (
 	"log"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 )
 
 type IdentityStorageWorker struct {

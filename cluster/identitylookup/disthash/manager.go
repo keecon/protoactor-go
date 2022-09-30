@@ -3,10 +3,10 @@ package disthash
 import (
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	clustering "github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/eventstream"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	clustering "github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/eventstream"
+	"github.com/keecon/protoactor-go/log"
 )
 
 const (

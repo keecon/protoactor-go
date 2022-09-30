@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/golang/mock/gomock"
+	"github.com/keecon/protoactor-go/cluster"
 	"github.com/stretchr/testify/suite"
 )
 

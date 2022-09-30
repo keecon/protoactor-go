@@ -4,11 +4,11 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 
-	"github.com/asynkron/protoactor-go/internal/queue/goring"
-	"github.com/asynkron/protoactor-go/internal/queue/mpsc"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/internal/queue/goring"
+	"github.com/keecon/protoactor-go/internal/queue/mpsc"
+	"github.com/keecon/protoactor-go/log"
 )
 
 const (

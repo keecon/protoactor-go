@@ -1,8 +1,8 @@
 package opentracing
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/log"
 	olog "github.com/opentracing/opentracing-go/log"
 )
 

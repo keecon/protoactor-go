@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/log"
 )
 
 var plog = log.New(log.DefaultLevel, "[CLUSTER]")

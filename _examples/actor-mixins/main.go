@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	console "github.com/asynkron/goconsole"
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/actor/middleware"
-	"github.com/asynkron/protoactor-go/plugin"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor/middleware"
+	"github.com/keecon/protoactor-go/plugin"
 )
 
 type myActor struct {

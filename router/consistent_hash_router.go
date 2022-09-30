@@ -3,7 +3,7 @@ package router
 import (
 	"log"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"github.com/serialx/hashring"
 )
 

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/log"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/log"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 

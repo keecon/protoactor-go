@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 )
 
 // Spawn creates instances of actors, similar to 'new' or 'make' but for actors.

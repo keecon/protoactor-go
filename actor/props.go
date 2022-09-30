@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/asynkron/protoactor-go/log"
-	"github.com/asynkron/protoactor-go/metrics"
+	"github.com/keecon/protoactor-go/log"
+	"github.com/keecon/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/metric/instrument"
 )
