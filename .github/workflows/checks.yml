@@ -1,10 +1,14 @@
-name: checks 
-on: [
-  pull_request,
-  workflow_dispatch,
-]
-env:
+name: checks
 
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    branches:
+    - main
+
+env:
   TERM: xterm
   REVIVE_FORCE_COLOR: 1
 
@@ -14,12 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go_version: ['1.18']
-    # services:
-    #   redis:
-    #     image: redis:5.0-alpine
-    #     ports: 
-    #       - 6379:6379
+        go_version: ['1.18', '1.19']
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
