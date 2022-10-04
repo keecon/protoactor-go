@@ -14,7 +14,6 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/orcaman/concurrent-map v1.0.0
 	github.com/serialx/hashring v0.0.0-20200727003509-22c0c7ab6b1b
-	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.7.1
 	go.opentelemetry.io/otel v1.7.0
 	go.opentelemetry.io/otel/exporters/prometheus v0.30.0
@@ -31,6 +30,7 @@ require (
 	github.com/golang/mock v1.5.0
 	github.com/labstack/echo v3.3.10+incompatible
 	github.com/lithammer/shortuuid/v4 v4.0.0
+	github.com/twmb/murmur3 v1.1.6
 	go.etcd.io/etcd/client/v3 v3.5.4
 	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
 	google.golang.org/genproto v0.0.0-20220526192754-51939a95c655

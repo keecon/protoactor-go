@@ -28,7 +28,7 @@ require (
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.34.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
-	github.com/spaolacci/murmur3 v1.1.0 // indirect
+	github.com/twmb/murmur3 v1.1.6 // indirect
 	go.opentelemetry.io/otel v1.7.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.30.0 // indirect
 	go.opentelemetry.io/otel/metric v0.30.0 // indirect
