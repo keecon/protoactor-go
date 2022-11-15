@@ -52,12 +52,3 @@ func WithMetricProviders(provider metric.MeterProvider) ConfigOption {
 		config.MetricsProvider = provider
 	}
 }
-
-func WithDefaultPrometheusProvider(port ...int) ConfigOption {
-	_port := 2222
-	if len(port) > 0 {
-		_port = port[0]
-	}
-
-	return WithMetricProviders(defaultPrometheusProvider(_port))
-}

@@ -1,18 +1,9 @@
 package actor
 
 import (
-	"fmt"
-	"net/http"
 	"time"
 
-	"github.com/keecon/protoactor-go/log"
-	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/global"
-	"go.opentelemetry.io/otel/sdk/export/metric/aggregation"
-	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
-	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
-	selector "go.opentelemetry.io/otel/sdk/metric/selector/simple"
 )
 
 type Config struct {
@@ -35,40 +26,6 @@ func defaultConfig() *Config {
 			return ""
 		},
 	}
-}
-
-func defaultPrometheusProvider(port int) metric.MeterProvider {
-	config := prometheus.Config{}
-	c := controller.New(
-		processor.NewFactory(
-			selector.NewWithInexpensiveDistribution(),
-			aggregation.CumulativeTemporalitySelector(),
-			processor.WithMemory(true),
-		),
-	)
-
-	exporter, err := prometheus.New(config, c)
-	if err != nil {
-		err = fmt.Errorf("failed to initialize prometheus exporter: %w", err)
-		plog.Error(err.Error(), log.Error(err))
-
-		return nil
-	}
-
-	provider := exporter.MeterProvider()
-	global.SetMeterProvider(provider)
-
-	http.HandleFunc("/", exporter.ServeHTTP)
-
-	_port := fmt.Sprintf(":%d", port)
-
-	go func() {
-		_ = http.ListenAndServe(_port, nil)
-	}()
-
-	plog.Debug(fmt.Sprintf("Prometheus server running on %s", _port))
-
-	return provider
 }
 
 func NewConfig() *Config {
