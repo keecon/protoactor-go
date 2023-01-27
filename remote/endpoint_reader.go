@@ -2,8 +2,9 @@ package remote
 
 import (
 	"errors"
-	"google.golang.org/protobuf/proto"
 	"io"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/log"
@@ -136,6 +137,12 @@ func (s *endpointReader) onMessageBatch(m *MessageBatch) error {
 		if err != nil {
 			plog.Error("EndpointReader failed to deserialize", log.Error(err))
 			return err
+		}
+
+		// translate from on-the-wire representation to in-process representation
+		// this only applies to root level messages, and never on nested child messages
+		if v, ok := message.(RootSerialized); ok {
+			message = v.Deserialize()
 		}
 
 		switch msg := message.(type) {
