@@ -103,7 +103,6 @@ type actorContext struct {
 	parent            *PID
 	self              *PID
 	receiveTimeout    time.Duration
-	producer          Producer
 	messageOrEnvelope interface{}
 	state             int32
 }
@@ -429,7 +428,7 @@ func (ctx *actorContext) Stop(pid *PID) {
 		if ok && metricsSystem.enabled {
 			_ctx := context.Background()
 			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-				instruments.ActorStoppedCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+				instruments.ActorStoppedCount.Add(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
 			}
 		}
 	}
@@ -535,8 +534,7 @@ func (ctx *actorContext) incarnateActor() {
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorSpawnCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
-		}
+			instruments.ActorSpawnCount.Add(_ctx, 1, metricsSystem.CommonLabels(ctx)...)		}
 	}
 }
 
@@ -599,7 +597,7 @@ func (ctx *actorContext) handleRestart() {
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorRestartedCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+			instruments.ActorRestartedCount.Add(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
 		}
 	}
 }
@@ -711,7 +709,7 @@ func (ctx *actorContext) EscalateFailure(reason interface{}, message interface{}
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorFailureCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+			instruments.ActorFailureCount.Add(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
 		}
 	}
 
