@@ -7,28 +7,21 @@ package {{.PackageName}}
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/cluster"
-	logmod "github.com/asynkron/protoactor-go/log"
 	"google.golang.org/protobuf/proto"
 )
 
 var (
-	plog = logmod.New(logmod.InfoLevel, "[GRAIN][{{.PackageName}}]")
-	_    = proto.Marshal
-	_    = fmt.Errorf
-	_    = math.Inf
+	_ = proto.Marshal
+	_ = fmt.Errorf
+	_ = math.Inf
 )
-
-// SetLogLevel sets the log level.
-func SetLogLevel(level logmod.Level) {
-	plog.SetLevel(level)
-}
-
-{{ range $service := .Services -}}
+{{ range $service := .Services }}
 var x{{ $service.Name }}Factory func() {{ $service.Name }}
 
 // {{ $service.Name }}Factory produces a {{ $service.Name }}
@@ -59,7 +52,7 @@ func Get{{ $service.Name }}Kind(opts ...actor.PropsOption) *cluster.Kind {
 }
 
 // Get{{ $service.Name }}Kind instantiates a new cluster.Kind for {{ $service.Name }}
-func New{{ $service.Name }}Kind(factory func() {{ $service.Name }}, timeout time.Duration ,opts ...actor.PropsOption) *cluster.Kind {
+func New{{ $service.Name }}Kind(factory func() {{ $service.Name }}, timeout time.Duration, opts ...actor.PropsOption) *cluster.Kind {
 	x{{ $service.Name }}Factory = factory
 	props := actor.PropsFromProducer(func() actor.Actor {
 		return &{{ $service.Name }}Actor{
@@ -75,15 +68,15 @@ type {{ $service.Name }} interface {
 	Init(ctx cluster.GrainContext)
 	Terminate(ctx cluster.GrainContext)
 	ReceiveDefault(ctx cluster.GrainContext)
-	{{ range $method := $service.Methods -}}
+	{{- range $method := $service.Methods }}
 	{{ $method.Name }}(*{{ $method.Input.Name }}, cluster.GrainContext) (*{{ $method.Output.Name }}, error)
-	{{ end }}
+	{{- end }}
 }
 
 // {{ $service.Name }}GrainClient holds the base data for the {{ $service.Name }}Grain
 type {{ $service.Name }}GrainClient struct {
-	Identity      string
-	cluster *cluster.Cluster
+	Identity string
+	cluster  *cluster.Cluster
 }
 {{ range $method := $service.Methods}}
 // {{ $method.Name }} requests the execution on to the cluster with CallOptions
@@ -93,7 +86,7 @@ func (g *{{ $service.Name }}GrainClient) {{ $method.Name }}(r *{{ $method.Input.
 		return nil, err
 	}
 	reqMsg := &cluster.GrainRequest{MethodIndex: {{ $method.Index }}, MessageData: bytes}
-	resp, err := g.cluster.Call(g.Identity, "{{ $service.Name }}", reqMsg, opts...)
+	resp, err := g.cluster.Request(g.Identity, "{{ $service.Name }}", reqMsg, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +105,6 @@ func (g *{{ $service.Name }}GrainClient) {{ $method.Name }}(r *{{ $method.Input.
 	}
 }
 {{ end }}
-
 // {{ $service.Name }}Actor represents the actor structure
 type {{ $service.Name }}Actor struct {
 	ctx     cluster.GrainContext
@@ -132,7 +124,7 @@ func (a *{{ $service.Name }}Actor) Receive(ctx actor.Context) {
 		if a.Timeout > 0 {
 			ctx.SetReceiveTimeout(a.Timeout)
 		}
-	case *actor.ReceiveTimeout:		
+	case *actor.ReceiveTimeout:
 		ctx.Poison(ctx.Self())
 	case *actor.Stopped:
 		a.inner.Terminate(a.ctx)
@@ -146,7 +138,7 @@ func (a *{{ $service.Name }}Actor) Receive(ctx actor.Context) {
 			req := &{{ $method.Input.Name }}{}
 			err := proto.Unmarshal(msg.MessageData, req)
 			if err != nil {
-				plog.Error("{{ $method.Name }}({{ $method.Input.Name }}) proto.Unmarshal failed.", logmod.Error(err))
+				ctx.Logger().Error("[Grain] {{ $method.Name }}({{ $method.Input.Name }}) proto.Unmarshal failed.", slog.Any("error", err))
 				resp := &cluster.GrainErrorResponse{Err: err.Error()}
 				ctx.Respond(resp)
 				return
@@ -159,14 +151,14 @@ func (a *{{ $service.Name }}Actor) Receive(ctx actor.Context) {
 			}
 			bytes, err := proto.Marshal(r0)
 			if err != nil {
-				plog.Error("{{ $method.Name }}({{ $method.Input.Name }}) proto.Marshal failed", logmod.Error(err))
+				ctx.Logger().Error("[Grain] {{ $method.Name }}({{ $method.Input.Name }}) proto.Marshal failed", slog.Any("error", err))
 				resp := &cluster.GrainErrorResponse{Err: err.Error()}
 				ctx.Respond(resp)
 				return
 			}
 			resp := &cluster.GrainResponse{MessageData: bytes}
 			ctx.Respond(resp)
-		{{ end }}
+		{{ end -}}
 		}
 	default:
 		a.inner.ReceiveDefault(a.ctx)
