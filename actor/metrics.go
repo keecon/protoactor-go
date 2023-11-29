@@ -4,24 +4,22 @@ package actor
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"github.com/keecon/protoactor-go/log"
-
-	"github.com/keecon/protoactor-go/extensions"
-	"github.com/keecon/protoactor-go/metrics"
+	"github.com/asynkron/protoactor-go/extensions"
+	"github.com/asynkron/protoactor-go/metrics"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/global"
-	"go.opentelemetry.io/otel/metric/instrument"
-	"go.opentelemetry.io/otel/metric/unit"
 )
 
 var extensionId = extensions.NextExtensionID()
 
 type Metrics struct {
-	metrics *metrics.ProtoMetrics
-	enabled bool
+	metrics     *metrics.ProtoMetrics
+	enabled     bool
+	actorSystem *ActorSystem
 }
 
 var _ extensions.Extension = &Metrics{}
@@ -34,26 +32,26 @@ func (m *Metrics) ExtensionID() extensions.ExtensionID {
 	return extensionId
 }
 
-func NewMetrics(provider metric.MeterProvider) *Metrics {
+func NewMetrics(system *ActorSystem, provider metric.MeterProvider) *Metrics {
 	if provider == nil {
 		return &Metrics{}
 	}
 
 	return &Metrics{
-		metrics: metrics.NewProtoMetrics(provider),
-		enabled: true,
+		metrics:     metrics.NewProtoMetrics(system.Logger()),
+		enabled:     true,
+		actorSystem: system,
 	}
 }
 
 func (m *Metrics) PrepareMailboxLengthGauge() {
-	meter := global.Meter(metrics.LibName)
-	gauge, err := meter.AsyncInt64().Gauge("protoactor_actor_mailbox_length",
-		instrument.WithDescription("Actor's Mailbox Length"),
-		instrument.WithUnit(unit.Dimensionless))
-
+	meter := otel.Meter(metrics.LibName)
+	gauge, err := meter.Int64ObservableGauge("protoactor_actor_mailbox_length",
+		metric.WithDescription("Actor's Mailbox Length"),
+		metric.WithUnit("1"))
 	if err != nil {
 		err = fmt.Errorf("failed to create ActorMailBoxLength instrument, %w", err)
-		plog.Error(err.Error(), log.Error(err))
+		m.actorSystem.Logger().Error(err.Error(), slog.Any("error", err))
 	}
 	m.metrics.Instruments().SetActorMailboxLengthGauge(gauge)
 }

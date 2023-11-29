@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/keecon/protoactor-go/actor"
@@ -26,6 +26,8 @@ type Config struct {
 	GossipRequestTimeout                         time.Duration
 	GossipFanOut                                 int
 	GossipMaxSend                                int
+	HeartbeatExpiration                          time.Duration // Gossip heartbeat timeout. If the member does not update its heartbeat within this period, it will be added to the BlockList
+	PubSubConfig                                 *PubSubConfig
 }
 
 func Configure(clusterName string, clusterProvider ClusterProvider, identityLookup IdentityLookup, remoteConfig *remote.Config, options ...ConfigOption) *Config {
@@ -45,6 +47,8 @@ func Configure(clusterName string, clusterProvider ClusterProvider, identityLook
 		GossipRequestTimeout: time.Millisecond * 500,
 		GossipFanOut:         3,
 		GossipMaxSend:        50,
+		HeartbeatExpiration:  time.Second * 20,
+		PubSubConfig:         newPubSubConfig(),
 	}
 
 	for _, option := range options {
@@ -56,17 +60,17 @@ func Configure(clusterName string, clusterProvider ClusterProvider, identityLook
 
 // ToClusterContextConfig converts this cluster Config Context parameters
 // into a valid ClusterContextConfig value and returns a pointer to its memory
-func (c *Config) ToClusterContextConfig() *ClusterContextConfig {
+func (c *Config) ToClusterContextConfig(logger *slog.Logger) *ClusterContextConfig {
 	clusterContextConfig := ClusterContextConfig{
-		ActorRequestTimeout:                          c.RequestTimeoutTime,
+
 		RequestsLogThrottlePeriod:                    c.RequestsLogThrottlePeriod,
 		MaxNumberOfEventsInRequestLogThrottledPeriod: c.MaxNumberOfEventsInRequestLogThrottledPeriod,
-		RetryAction: defaultRetryAction,
-		requestLogThrottle: actor.NewThrottle(
+
+		requestLogThrottle: actor.NewThrottleWithLogger(logger,
 			int32(defaultMaxNumberOfEvetsInRequestLogThrottledPeriod),
 			defaultRequestsLogThrottlePeriod,
-			func(i int32) {
-				plog.Info(fmt.Sprintf("Throttled %d Request logs", i))
+			func(logger *slog.Logger, i int32) {
+				logger.Info("Throttled %d Request logs", slog.Int("count", int(i)))
 			},
 		),
 	}

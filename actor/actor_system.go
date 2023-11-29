@@ -1,6 +1,7 @@
 package actor
 
 import (
+	"log/slog"
 	"net"
 	"strconv"
 
@@ -19,6 +20,12 @@ type ActorSystem struct {
 	Extensions      *extensions.Extensions
 	Config          *Config
 	ID              string
+	stopper         chan struct{}
+	logger          *slog.Logger
+}
+
+func (as *ActorSystem) Logger() *slog.Logger {
+	return as.logger
 }
 
 func (as *ActorSystem) NewLocalPID(id string) *PID {
@@ -47,6 +54,16 @@ func (as *ActorSystem) GetHostPort() (host string, port int, err error) {
 }
 
 func (as *ActorSystem) Shutdown() {
+	close(as.stopper)
+}
+
+func (as *ActorSystem) IsStopped() bool {
+	select {
+	case <-as.stopper:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewActorSystem(options ...ConfigOption) *ActorSystem {
@@ -59,6 +76,7 @@ func NewActorSystemWithConfig(config *Config) *ActorSystem {
 	system := &ActorSystem{}
 	system.ID = shortuuid.New()
 	system.Config = config
+	system.logger = config.LoggerFactory(system)
 	system.ProcessRegistry = NewProcessRegistry(system)
 	system.Root = NewRootContext(system, EmptyMessageHeader)
 	system.Guardians = NewGuardians(system)
@@ -66,9 +84,12 @@ func NewActorSystemWithConfig(config *Config) *ActorSystem {
 	system.DeadLetter = NewDeadLetter(system)
 	system.Extensions = extensions.NewExtensions()
 	SubscribeSupervision(system)
-	system.Extensions.Register(NewMetrics(config.MetricsProvider))
+	system.Extensions.Register(NewMetrics(system, config.MetricsProvider))
 
 	system.ProcessRegistry.Add(NewEventStreamProcess(system), "eventstream")
+	system.stopper = make(chan struct{})
+
+	system.Logger().Info("actor system started", slog.String("id", system.ID))
 
 	return system
 }

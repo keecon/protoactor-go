@@ -4,8 +4,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
-	"github.com/keecon/protoactor-go/internal/queue/mpsc"
-	"github.com/keecon/protoactor-go/log"
+	"github.com/asynkron/protoactor-go/internal/queue/mpsc"
 )
 
 // MailboxMiddleware is an interface for intercepting messages and events in the mailbox
@@ -63,7 +62,17 @@ func (m *defaultMailbox) PostUserMessage(message interface{}) {
 	}
 
 	// is it an envelope batch message?
+	// FIXME: check if this is still needed, maybe MessageEnvelope can only exist as a pointer
 	if env, ok := message.(MessageEnvelope); ok {
+		if batch, ok := env.Message.(MessageBatch); ok {
+			messages := batch.GetMessages()
+
+			for _, msg := range messages {
+				m.PostUserMessage(msg)
+			}
+		}
+	}
+	if env, ok := message.(*MessageEnvelope); ok {
 		if batch, ok := env.Message.(MessageBatch); ok {
 			messages := batch.GetMessages()
 
@@ -129,7 +138,6 @@ func (m *defaultMailbox) run() {
 
 	defer func() {
 		if r := recover(); r != nil {
-			plog.Info("[ACTOR] Recovering", log.Object("actor", m.invoker), log.Object("reason", r), log.Stack())
 			m.invoker.EscalateFailure(r, msg)
 		}
 	}()

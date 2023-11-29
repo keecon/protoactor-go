@@ -3,14 +3,15 @@ package actor
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/keecon/protoactor-go/log"
-	"github.com/keecon/protoactor-go/metrics"
+	"github.com/asynkron/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ErrTimeout is the error used when a future times out before receiving a result.
@@ -26,7 +27,7 @@ func NewFuture(actorSystem *ActorSystem, d time.Duration) *Future {
 
 	pid, ok := actorSystem.ProcessRegistry.Add(ref, "future"+id)
 	if !ok {
-		plog.Error("failed to register future process", log.Stringer("pid", pid))
+		actorSystem.Logger().Error("failed to register future process", slog.Any("pid", pid))
 	}
 
 	sysMetrics, ok := actorSystem.Extensions.Get(extensionId).(*Metrics)
@@ -36,7 +37,8 @@ func NewFuture(actorSystem *ActorSystem, d time.Duration) *Future {
 			labels := []attribute.KeyValue{
 				attribute.String("address", ref.actorSystem.Address()),
 			}
-			instruments.FuturesStartedCount.Observe(ctx, 1, labels...)
+
+			instruments.FuturesStartedCount.Add(ctx, 1, metric.WithAttributes(labels...))
 		}
 	}
 
@@ -179,9 +181,9 @@ func (ref *futureProcess) instrument() {
 		instruments := sysMetrics.metrics.Get(metrics.InternalActorMetrics)
 		if instruments != nil {
 			if ref.err == nil {
-				instruments.FuturesCompletedCount.Observe(ctx, 1, labels...)
+				instruments.FuturesCompletedCount.Add(ctx, 1, metric.WithAttributes(labels...))
 			} else {
-				instruments.FuturesTimedOutCount.Observe(ctx, 1, labels...)
+				instruments.FuturesTimedOutCount.Add(ctx, 1, metric.WithAttributes(labels...))
 			}
 		}
 	}

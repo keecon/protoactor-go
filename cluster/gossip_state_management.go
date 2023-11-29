@@ -1,6 +1,8 @@
 package cluster
 
 import (
+	"time"
+
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -39,6 +41,7 @@ func setKey(state *GossipState, key string, value proto.Message, memberID string
 	// if entry does not exists, add it
 	memberState := ensureMemberStateExists(state, memberID)
 	entry := ensureEntryExists(memberState, key)
+	entry.LocalTimestampUnixMilliseconds = time.Now().UnixMilli()
 
 	sequenceNo++
 	entry.SequenceNumber = sequenceNo
@@ -71,6 +74,7 @@ func mergeState(localState *GossipState, remoteState *GossipState) ([]*GossipUpd
 					SeqNumber: entry.SequenceNumber,
 				}
 				updates = append(updates, &update)
+				entry.LocalTimestampUnixMilliseconds = time.Now().UnixMilli()
 				updatedKeys[key] = empty{}
 			}
 			continue
@@ -89,6 +93,7 @@ func mergeState(localState *GossipState, remoteState *GossipState) ([]*GossipUpd
 					SeqNumber: remoteValue.SequenceNumber,
 				}
 				updates = append(updates, &update)
+				remoteValue.LocalTimestampUnixMilliseconds = time.Now().UnixMilli()
 				updatedKeys[key] = empty{}
 				continue
 			}
@@ -109,6 +114,7 @@ func mergeState(localState *GossipState, remoteState *GossipState) ([]*GossipUpd
 				SeqNumber: remoteValue.SequenceNumber,
 			}
 			updates = append(updates, &update)
+			remoteValue.LocalTimestampUnixMilliseconds = time.Now().UnixMilli()
 			updatedKeys[key] = empty{}
 		}
 	}

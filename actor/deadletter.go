@@ -3,11 +3,12 @@ package actor
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	"github.com/keecon/protoactor-go/log"
-	"github.com/keecon/protoactor-go/metrics"
+	"github.com/asynkron/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type deadLetterProcess struct {
@@ -22,7 +23,7 @@ func NewDeadLetter(actorSystem *ActorSystem) *deadLetterProcess {
 	}
 
 	shouldThrottle := NewThrottle(actorSystem.Config.DeadLetterThrottleCount, actorSystem.Config.DeadLetterThrottleInterval, func(i int32) {
-		plog.Info("[DeadLetter]", log.Int64("throttled", int64(i)))
+		actorSystem.Logger().Info("[DeadLetter]", slog.Int64("throttled", int64(i)))
 	})
 
 	actorSystem.ProcessRegistry.Add(dp, "deadletter")
@@ -41,7 +42,7 @@ func NewDeadLetter(actorSystem *ActorSystem) *deadLetterProcess {
 
 			if _, isIgnoreDeadLetter := deadLetter.Message.(IgnoreDeadLetterLogging); !isIgnoreDeadLetter {
 				if shouldThrottle() == Open {
-					plog.Debug("[DeadLetter]", log.Stringer("pid", deadLetter.PID), log.TypeOf("msg", deadLetter.Message), log.Stringer("sender", deadLetter.Sender))
+					actorSystem.Logger().Debug("[DeadLetter]", slog.Any("pid", deadLetter.PID), slog.Any("message", deadLetter.Message), slog.Any("sender", deadLetter.Sender))
 				}
 			}
 		}
@@ -81,7 +82,8 @@ func (dp *deadLetterProcess) SendUserMessage(pid *PID, message interface{}) {
 				attribute.String("address", dp.actorSystem.Address()),
 				attribute.String("messagetype", strings.Replace(fmt.Sprintf("%T", message), "*", "", 1)),
 			}
-			instruments.DeadLetterCount.Observe(ctx, 1, labels...)
+
+			instruments.DeadLetterCount.Add(ctx, 1, metric.WithAttributes(labels...))
 		}
 	}
 	_, msg, sender := UnwrapEnvelope(message)

@@ -4,14 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
+	"github.com/asynkron/protoactor-go/ctxext"
+	"github.com/asynkron/protoactor-go/metrics"
 	"github.com/emirpasic/gods/stacks/linkedliststack"
 	"github.com/keecon/protoactor-go/ctxext"
 	"github.com/keecon/protoactor-go/log"
 	"github.com/keecon/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -103,7 +107,6 @@ type actorContext struct {
 	parent            *PID
 	self              *PID
 	receiveTimeout    time.Duration
-	producer          Producer
 	messageOrEnvelope interface{}
 	state             int32
 }
@@ -147,6 +150,10 @@ func (ctx *actorContext) ensureExtras() *actorContextExtras {
 
 func (ctx *actorContext) ActorSystem() *ActorSystem {
 	return ctx.actorSystem
+}
+
+func (ctx *actorContext) Logger() *slog.Logger {
+	return ctx.actorSystem.Logger()
 }
 
 func (ctx *actorContext) Parent() *PID {
@@ -256,7 +263,7 @@ func (ctx *actorContext) receiveTimeoutHandler() {
 func (ctx *actorContext) Forward(pid *PID) {
 	if msg, ok := ctx.messageOrEnvelope.(SystemMessage); ok {
 		// SystemMessage cannot be forwarded
-		plog.Error("SystemMessage cannot be forwarded", log.Message(msg))
+		ctx.Logger().Error("SystemMessage cannot be forwarded", slog.Any("message", msg))
 
 		return
 	}
@@ -429,7 +436,7 @@ func (ctx *actorContext) Stop(pid *PID) {
 		if ok && metricsSystem.enabled {
 			_ctx := context.Background()
 			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-				instruments.ActorStoppedCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+				instruments.ActorStoppedCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
 			}
 		}
 	}
@@ -498,7 +505,7 @@ func (ctx *actorContext) InvokeUserMessage(md interface{}) {
 				systemMetrics.CommonLabels(ctx),
 				attribute.String("messagetype", fmt.Sprintf("%T", md)),
 			)
-			histogram.Record(_ctx, delta.Seconds(), labels...)
+			histogram.Record(_ctx, delta.Seconds(), metric.WithAttributes(labels...))
 		}
 	} else {
 		ctx.processMessage(md)
@@ -529,13 +536,13 @@ func (ctx *actorContext) processMessage(m interface{}) {
 
 func (ctx *actorContext) incarnateActor() {
 	atomic.StoreInt32(&ctx.state, stateAlive)
-	ctx.actor = ctx.props.producer()
+	ctx.actor = ctx.props.producer(ctx.actorSystem)
 
 	metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorSpawnCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+			instruments.ActorSpawnCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
 		}
 	}
 }
@@ -563,7 +570,7 @@ func (ctx *actorContext) InvokeSystemMessage(message interface{}) {
 	case *Restart:
 		ctx.handleRestart()
 	default:
-		plog.Error("unknown system message", log.Message(msg))
+		ctx.Logger().Error("unknown system message", slog.Any("message", msg))
 	}
 }
 
@@ -599,7 +606,7 @@ func (ctx *actorContext) handleRestart() {
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorRestartedCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+			instruments.ActorRestartedCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
 		}
 	}
 }
@@ -644,9 +651,10 @@ func (ctx *actorContext) stopAllChildren() {
 		return
 	}
 
-	ctx.extras.children.ForEach(func(_ int, pid *PID) {
-		ctx.Stop(pid)
-	})
+	var pids = ctx.extras.children.pids
+	for i := len(pids) - 1; i >= 0; i-- {
+		pids[i].sendSystemMessage(ctx.actorSystem, stopMessage)
+	}
 }
 
 func (ctx *actorContext) tryRestartOrTerminate() {
@@ -701,17 +709,19 @@ func (ctx *actorContext) finalizeStop() {
 //
 
 func (ctx *actorContext) EscalateFailure(reason interface{}, message interface{}) {
+	//TODO: add callstack to log?
+	ctx.Logger().Info("[ACTOR] Recovering", slog.Any("self", ctx.self), slog.Any("reason", reason))
 	// debug setting, allows to output supervision failures in console/error level
 	if ctx.actorSystem.Config.DeveloperSupervisionLogging {
 		fmt.Println("[Supervision] Actor:", ctx.self, " failed with message:", message, " exception:", reason)
-		plog.Error("[Supervision]", log.Stringer("actor", ctx.self), log.Object("message", message), log.Object("exception", reason))
+		ctx.Logger().Error("[Supervision]", slog.Any("actor", ctx.self), slog.Any("message", message), slog.Any("exception", reason))
 	}
 
 	metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
 	if ok && metricsSystem.enabled {
 		_ctx := context.Background()
 		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorFailureCount.Observe(_ctx, 1, metricsSystem.CommonLabels(ctx)...)
+			instruments.ActorFailureCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
 		}
 	}
 

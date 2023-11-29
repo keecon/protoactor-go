@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
-	"github.com/keecon/protoactor-go/log"
-	"github.com/keecon/protoactor-go/metrics"
-	"go.opentelemetry.io/otel/metric/global"
-	"go.opentelemetry.io/otel/metric/instrument"
+	"github.com/asynkron/protoactor-go/metrics"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type (
@@ -33,12 +33,14 @@ var (
 			if ok && sysMetrics.enabled {
 				if instruments := sysMetrics.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
 					sysMetrics.PrepareMailboxLengthGauge()
-					meter := global.Meter(metrics.LibName)
-					if err := meter.RegisterCallback([]instrument.Asynchronous{instruments.ActorMailboxLength}, func(goCtx context.Context) {
-						instruments.ActorMailboxLength.Observe(goCtx, int64(mb.UserMessageCount()), sysMetrics.CommonLabels(ctx)...)
+					meter := otel.Meter(metrics.LibName)
+
+					if _, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+						o.ObserveInt64(instruments.ActorMailboxLength, int64(mb.UserMessageCount()), metric.WithAttributes(sysMetrics.CommonLabels(ctx)...))
+						return nil
 					}); err != nil {
 						err = fmt.Errorf("failed to instrument Actor Mailbox, %w", err)
-						plog.Error(err.Error(), log.Error(err))
+						actorSystem.Logger().Error(err.Error(), slog.Any("error", err))
 					}
 				}
 			}
@@ -84,7 +86,7 @@ var ErrNameExists = errors.New("spawn: name exists")
 // Props represents configuration to define how an actor should be created.
 type Props struct {
 	spawner                 SpawnFunc
-	producer                Producer
+	producer                ProducerWithActorSystem
 	mailboxProducer         MailboxProducer
 	guardianStrategy        SupervisorStrategy
 	supervisionStrategy     SupervisorStrategy

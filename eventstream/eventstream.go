@@ -89,10 +89,16 @@ func (es *EventStream) Unsubscribe(sub *Subscription) {
 
 // Publishes the given event to all the subscribers in the stream
 func (es *EventStream) Publish(evt interface{}) {
+	subs := make([]*Subscription, 0, es.Length())
 	es.RLock()
-	defer es.RUnlock()
-
 	for _, sub := range es.subscriptions {
+		if sub.IsActive() {
+			subs = append(subs, sub)
+		}
+	}
+	es.RUnlock()
+
+	for _, sub := range subs {
 		// there is a subscription predicate and it didn't pass, return
 		if sub.p != nil && !sub.p(evt) {
 			continue
@@ -105,7 +111,9 @@ func (es *EventStream) Publish(evt interface{}) {
 
 // Returns an integer that represents the current number of subscribers to the stream
 func (es *EventStream) Length() int32 {
-	return atomic.LoadInt32(&es.counter)
+	es.RLock()
+	defer es.RUnlock()
+	return es.counter
 }
 
 // Subscription is returned from the Subscribe function.
