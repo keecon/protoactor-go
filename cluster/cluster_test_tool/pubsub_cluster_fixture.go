@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/net/context"
 )

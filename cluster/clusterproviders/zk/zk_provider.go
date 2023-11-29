@@ -9,10 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/go-zookeeper/zk"
 	"github.com/keecon/protoactor-go/cluster"
-	"github.com/keecon/protoactor-go/log"
 )
 
 var _ cluster.ClusterProvider = new(Provider)

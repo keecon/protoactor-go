@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/asynkron/protoactor-go/metrics"
+	"github.com/keecon/protoactor-go/metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 )

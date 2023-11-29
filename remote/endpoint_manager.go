@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/eventstream"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/eventstream"
 )
 
 type endpointLazy struct {

@@ -8,10 +8,8 @@ import (
 
 	"github.com/keecon/protoactor-go/actor"
 
-	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/hashicorp/consul/api"
 	"github.com/keecon/protoactor-go/cluster"
-	"github.com/keecon/protoactor-go/log"
 )
 
 var ProviderShuttingDownError = fmt.Errorf("consul cluster provider is shutting down")

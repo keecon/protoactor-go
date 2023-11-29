@@ -9,7 +9,7 @@ import (
 
 	"github.com/keecon/protoactor-go/extensions"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )

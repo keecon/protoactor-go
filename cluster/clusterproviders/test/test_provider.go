@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster"
 	"golang.org/x/exp/maps"
 )
 

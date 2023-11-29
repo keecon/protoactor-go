@@ -1,8 +1,8 @@
 package disthash
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
-	clustering "github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/actor"
+	clustering "github.com/keecon/protoactor-go/cluster"
 	"log/slog"
 )
 

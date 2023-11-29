@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	clustering "github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/eventstream"
+	"github.com/keecon/protoactor-go/actor"
+	clustering "github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/eventstream"
 )
 
 const (

@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 )
 
 // Publisher creates a new PubSub publisher that publishes messages directly to the TopicActor

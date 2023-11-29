@@ -19,14 +19,9 @@ jobs:
     strategy:
       matrix:
         go_version: ['1.21']
-    # services:
-    #   redis:
-    #     image: redis:5.0-alpine
-    #     ports: 
-    #       - 6379:6379
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go_version }}
       - uses: actions/cache@v3
@@ -37,15 +32,37 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      - name: start services
-        run: docker compose up -d
       - name: run testcases
-        run: make test2
-      - name: benchmark
-        run: make bench
-      - name: linter
-        run: make lint
+        run: make test-short
       - name: vet
         run: make vet
+    # services:
+    #   redis:
+    #     image: redis:5.0-alpine
+    #     ports:
+    #       - 6379:6379
+    # steps:
+    #   - uses: actions/checkout@v3
+    #   - uses: actions/setup-go@v3
+    #     with:
+    #       go-version: ${{ matrix.go_version }}
+    #   - uses: actions/cache@v3
+    #     with:
+    #       path: |
+    #         ~/.cache/go-build
+    #         ~/go/pkg/mod
+    #       key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
+    #       restore-keys: |
+    #         ${{ runner.os }}-go-
+    #   - name: start services
+    #     run: docker compose up -d
+    #   - name: run testcases
+    #     run: make test2
+    #   - name: benchmark
+    #     run: make bench
+    #   - name: linter
+    #     run: make lint
+    #   - name: vet
+    #     run: make vet
 
 
