@@ -3,14 +3,25 @@ package cluster
 import (
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/asynkron/protoactor-go/remote"
+	"google.golang.org/protobuf/proto"
+)
+
+var (
+	_ remote.RootSerializable = (*PubSubBatch)(nil)
+	_ remote.RootSerializable = (*DeliverBatchRequest)(nil)
+	_ remote.RootSerializable = (*PubSubAutoRespondBatch)(nil)
+
+	_ remote.RootSerialized = (*PubSubBatchTransport)(nil)
+	_ remote.RootSerialized = (*DeliverBatchRequestTransport)(nil)
+	_ remote.RootSerialized = (*PubSubAutoRespondBatchTransport)(nil)
 )
 
 type PubSubBatch struct {
-	Envelopes []interface{}
+	Envelopes []proto.Message
 }
 
 // Serialize converts a PubSubBatch to a PubSubBatchTransport.
-func (b *PubSubBatch) Serialize() remote.RootSerialized {
+func (b *PubSubBatch) Serialize() (remote.RootSerialized, error) {
 	batch := &PubSubBatchTransport{
 		TypeNames: make([]string, 0),
 		Envelopes: make([]*PubSubEnvelope, 0),
@@ -20,7 +31,7 @@ func (b *PubSubBatch) Serialize() remote.RootSerialized {
 		var serializerId int32
 		messageData, typeName, err := remote.Serialize(envelope, serializerId)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		// batch.TypeNames.IndexOf(typeName)
 		typeIndex := -1
@@ -40,23 +51,28 @@ func (b *PubSubBatch) Serialize() remote.RootSerialized {
 			SerializerId: serializerId,
 		})
 	}
-	return batch
+	return batch, nil
 }
 
 // Deserialize converts a PubSubBatchTransport to a PubSubBatch.
-func (t *PubSubBatchTransport) Deserialize() remote.RootSerializable {
+func (t *PubSubBatchTransport) Deserialize() (remote.RootSerializable, error) {
 	b := &PubSubBatch{
-		Envelopes: make([]interface{}, 0),
+		Envelopes: make([]proto.Message, 0),
 	}
 
 	for _, envelope := range t.Envelopes {
 		message, err := remote.Deserialize(envelope.MessageData, t.TypeNames[envelope.TypeId], envelope.SerializerId)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
-		b.Envelopes = append(b.Envelopes, message)
+		protoMessage, ok := message.(proto.Message)
+		if !ok {
+			panic("message is not proto.Message")
+		}
+
+		b.Envelopes = append(b.Envelopes, protoMessage)
 	}
-	return b
+	return b, nil
 }
 
 type DeliverBatchRequest struct {
@@ -65,34 +81,51 @@ type DeliverBatchRequest struct {
 	Topic       string
 }
 
-func (d *DeliverBatchRequest) Serialize() remote.RootSerialized {
+func (d *DeliverBatchRequest) Serialize() (remote.RootSerialized, error) {
+	rs, err := d.PubSubBatch.Serialize()
+	if err != nil {
+		return nil, err
+	}
+
 	return &DeliverBatchRequestTransport{
 		Subscribers: d.Subscribers,
-		Batch:       d.PubSubBatch.Serialize().(*PubSubBatchTransport),
+		Batch:       rs.(*PubSubBatchTransport),
 		Topic:       d.Topic,
-	}
+	}, nil
 }
 
-func (t *DeliverBatchRequestTransport) Deserialize() remote.RootSerializable {
+func (t *DeliverBatchRequestTransport) Deserialize() (remote.RootSerializable, error) {
+	rs, err := t.Batch.Deserialize()
+	if err != nil {
+		return nil, err
+	}
+
 	return &DeliverBatchRequest{
 		Subscribers: t.Subscribers,
-		PubSubBatch: t.Batch.Deserialize().(*PubSubBatch),
+		PubSubBatch: rs.(*PubSubBatch),
 		Topic:       t.Topic,
-	}
+	}, nil
 }
 
+var _ actor.MessageBatch = (*PubSubAutoRespondBatch)(nil)
+
 type PubSubAutoRespondBatch struct {
-	Envelopes []interface{}
+	Envelopes []proto.Message
 }
 
 // Serialize converts a PubSubAutoRespondBatch to a PubSubAutoRespondBatchTransport.
-func (b *PubSubAutoRespondBatch) Serialize() remote.RootSerialized {
+func (b *PubSubAutoRespondBatch) Serialize() (remote.RootSerialized, error) {
 	batch := &PubSubBatch{Envelopes: b.Envelopes}
-	transport := batch.Serialize().(*PubSubBatchTransport)
-	return &PubSubAutoRespondBatchTransport{
-		TypeNames: transport.TypeNames,
-		Envelopes: transport.Envelopes,
+
+	rs, err := batch.Serialize()
+	if err != nil {
+		return nil, err
 	}
+
+	return &PubSubAutoRespondBatchTransport{
+		TypeNames: rs.(*PubSubBatchTransport).TypeNames,
+		Envelopes: rs.(*PubSubBatchTransport).Envelopes,
+	}, nil
 }
 
 // GetAutoResponse returns a PublishResponse.
@@ -104,16 +137,25 @@ func (b *PubSubAutoRespondBatch) GetAutoResponse(_ actor.Context) interface{} {
 
 // GetMessages returns the message.
 func (b *PubSubAutoRespondBatch) GetMessages() []interface{} {
-	return b.Envelopes
+	var messages []interface{}
+	for _, envelope := range b.Envelopes {
+		messages = append(messages, envelope)
+	}
+	return messages
 }
 
 // Deserialize converts a PubSubAutoRespondBatchTransport to a PubSubAutoRespondBatch.
-func (t *PubSubAutoRespondBatchTransport) Deserialize() remote.RootSerializable {
+func (t *PubSubAutoRespondBatchTransport) Deserialize() (remote.RootSerializable, error) {
 	batch := &PubSubBatchTransport{
 		TypeNames: t.TypeNames,
 		Envelopes: t.Envelopes,
 	}
-	return &PubSubAutoRespondBatch{
-		Envelopes: batch.Deserialize().(*PubSubBatch).Envelopes,
+	rs, err := batch.Deserialize()
+	if err != nil {
+		return nil, err
 	}
+
+	return &PubSubAutoRespondBatch{
+		Envelopes: rs.(*PubSubBatch).Envelopes,
+	}, nil
 }
