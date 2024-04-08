@@ -1,4 +1,4 @@
-// Copyright (C) 2017 - 2022 Asynkron.se <http://www.asynkron.se>
+// Copyright (C) 2017 - 2024 Asynkron.se <http://www.asynkron.se>
 
 package cluster
 

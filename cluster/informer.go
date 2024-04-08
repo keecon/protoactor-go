@@ -1,9 +1,10 @@
-// Copyright (C) 2015-2022 Asynkron AB All rights reserved
+// Copyright (C) 2017 - 2024 Asynkron AB All rights reserved
 
 package cluster
 
 import (
 	"fmt"
+	"google.golang.org/protobuf/types/known/anypb"
 	"log/slog"
 	"math/rand"
 	"reflect"
@@ -16,7 +17,7 @@ import (
 
 const (
 	TopologyKey       string = "topology"
-	HearthbeatKey     string = "heathbeat"
+	HeartbeatKey      string = "heartbeat"
 	GracefullyLeftKey string = "left"
 )
 
@@ -48,7 +49,7 @@ func newInformer(myID string, getBlockedMembers func() set.Set[string], fanOut i
 	informer := Informer{
 		myID: myID,
 		state: &GossipState{
-			Members: map[string]*GossipState_GossipMemberState{},
+			Members: map[string]*GossipMemberState{},
 		},
 		committedOffsets:  map[string]int64{},
 		activeMemberIDs:   map[string]empty{},
@@ -145,13 +146,13 @@ func (inf *Informer) GetMemberStateDelta(targetMemberID string) *MemberStateDelt
 	var count int
 
 	// newState will old the final new state to be sent
-	newState := GossipState{Members: make(map[string]*GossipState_GossipMemberState)}
+	newState := GossipState{Members: make(map[string]*GossipMemberState)}
 
 	// hashmaps in Go are random by nature so no need to randomize state.Members
 	pendingOffsets := inf.committedOffsets
 
 	// create a new map with gossipMaxSend entries max
-	members := make(map[string]*GossipState_GossipMemberState)
+	members := make(map[string]*GossipMemberState)
 
 	// add ourselves to the gossip list if we are in the members state
 	if member, ok := inf.state.Members[inf.myID]; ok {
@@ -179,7 +180,7 @@ func (inf *Informer) GetMemberStateDelta(targetMemberID string) *MemberStateDelt
 	for memberID, memberState := range members {
 
 		// create an empty state
-		newMemberState := GossipState_GossipMemberState{
+		newMemberState := GossipMemberState{
 			Values: make(map[string]*GossipKeyValue),
 		}
 
@@ -291,4 +292,47 @@ func (inf *Informer) commitPendingOffsets(offsets map[string]int64) {
 
 func (inf *Informer) throttledLog(counter int32) {
 	inf.logger.Debug("[Gossip] Setting State", slog.Int("throttled", int(counter)))
+}
+
+func (inf *Informer) SetMapState(stateKey string, mapKey string, value proto.Message) {
+	gmap := inf.getGossipMap(stateKey)
+	v, err := anypb.New(value)
+	if err != nil {
+		inf.logger.Error("Failed to create Any", slog.Any("error", err))
+	}
+	gmap.Items[mapKey] = v
+
+	inf.SetState(stateKey, gmap)
+}
+
+func (inf *Informer) RemoveMapState(stateKey string, mapKey string) {
+	gmap := inf.getGossipMap(stateKey)
+
+	delete(gmap.Items, mapKey)
+
+	inf.SetState(stateKey, gmap)
+}
+
+func (inf *Informer) GetMapKeys(stateKey string) []string {
+	gmap := inf.getGossipMap(stateKey)
+
+	keys := make([]string, 0, len(gmap.Items))
+	for k := range gmap.Items {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+func (inf *Informer) getGossipMap(stateKey string) *GossipMap {
+	s := inf.GetState(stateKey)
+	mys := s[inf.myID]
+	gmap := &GossipMap{}
+	if mys != nil {
+		err := mys.Value.UnmarshalTo(gmap)
+		if err != nil {
+			inf.logger.Error("Failed to unmarshal GossipMap", slog.Any("error", err))
+		}
+	}
+	return gmap
 }

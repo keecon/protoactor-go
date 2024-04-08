@@ -1,9 +1,10 @@
 package disthash
 
 import (
+	"log/slog"
+
 	"github.com/asynkron/protoactor-go/actor"
 	clustering "github.com/asynkron/protoactor-go/cluster"
-	"log/slog"
 )
 
 type GrainMeta struct {
@@ -35,7 +36,7 @@ func (p *placementActor) Receive(ctx actor.Context) {
 	case *actor.Stopped:
 		ctx.Logger().Info("Placement actor stopped")
 	case *actor.Terminated:
-		p.onTerminated(msg, ctx)
+		p.onTerminated(msg)
 	case *clustering.ActivationRequest:
 		p.onActivationRequest(msg, ctx)
 	case *clustering.ClusterTopology:
@@ -45,8 +46,10 @@ func (p *placementActor) Receive(ctx actor.Context) {
 	}
 }
 
-func (p *placementActor) onTerminated(msg *actor.Terminated, ctx actor.Context) {
+func (p *placementActor) onTerminated(msg *actor.Terminated) {
 	found, key, meta := p.pidToMeta(msg.Who)
+	clusterKind := p.cluster.GetClusterKind(meta.ID.Kind)
+	clusterKind.Dec()
 
 	activationTerminated := &clustering.ActivationTerminated{
 		Pid:             msg.Who,
@@ -97,6 +100,7 @@ func (p *placementActor) onActivationRequest(msg *clustering.ActivationRequest, 
 	props := clustering.WithClusterIdentity(clusterKind.Props, msg.ClusterIdentity)
 
 	pid := ctx.SpawnPrefix(props, msg.ClusterIdentity.Identity)
+	clusterKind.Inc()
 
 	p.actors[key] = GrainMeta{
 		ID:  msg.ClusterIdentity,

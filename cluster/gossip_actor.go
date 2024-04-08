@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2022 Asynkron AB All rights reserved
+// Copyright (C) 2017 - 2024 Asynkron AB All rights reserved
 
 package cluster
 
@@ -45,8 +45,14 @@ func (ga *GossipActor) Receive(ctx actor.Context) {
 	switch r := ctx.Message().(type) {
 	case *actor.Started, *actor.Stopping, *actor.Stopped:
 		// pass
-	case *SetGossipStateKey:
-		ga.onSetGossipStateKey(r, ctx)
+	case *SetGossipState:
+		ga.onSetGossipState(r, ctx)
+	case *SetGossipMapState:
+		ga.onSetGossipMapState(r, ctx)
+	case *RemoveGossipMapState:
+		ga.onRemoveGossipMapState(r, ctx)
+	case *GetGossipMapKeysRequest:
+		ga.onGetGossipMapKeys(r, ctx)
 	case *GetGossipStateRequest:
 		ga.onGetGossipStateKey(r, ctx)
 	case *GossipRequest:
@@ -79,7 +85,7 @@ func (ga *GossipActor) onRemoveConsensusCheck(r *RemoveConsensusCheck) {
 }
 
 func (ga *GossipActor) onGetGossipStateKey(r *GetGossipStateRequest, ctx actor.Context) {
-	state := ga.gossip.GetState(r.Key)
+	state := ga.gossip.GetState(r.GossipStateKey)
 	res := NewGetGossipStateResponse(state)
 	ctx.Respond(&res)
 }
@@ -90,8 +96,8 @@ func (ga *GossipActor) onGossipRequest(r *GossipRequest, ctx actor.Context) {
 	}
 	ga.ReceiveState(r.State, ctx)
 
-	if !GetCluster(ctx.ActorSystem()).MemberList.ContainsMemberID(r.MemberId) {
-		ctx.Logger().Warn("Got gossip request from unknown member", slog.String("MemberId", r.MemberId))
+	if !GetCluster(ctx.ActorSystem()).MemberList.ContainsMemberID(r.FromMemberId) {
+		ctx.Logger().Warn("Got gossip request from unknown member", slog.String("MemberId", r.FromMemberId))
 
 		// nothing to send, do not provide sender or state payload
 		// ctx.Respond(&GossipResponse{State: &GossipState{Members: make(map[string]*GossipState_GossipMemberState)}})
@@ -100,9 +106,9 @@ func (ga *GossipActor) onGossipRequest(r *GossipRequest, ctx actor.Context) {
 		return
 	}
 
-	memberState := ga.gossip.GetMemberStateDelta(r.MemberId)
+	memberState := ga.gossip.GetMemberStateDelta(r.FromMemberId)
 	if !memberState.HasState {
-		ctx.Logger().Warn("Got gossip request from member, but no state was found", slog.String("MemberId", r.MemberId))
+		ctx.Logger().Warn("Got gossip request from member, but no state was found", slog.String("MemberId", r.FromMemberId))
 
 		// nothing to send, do not provide sender or state payload
 		ctx.Respond(&GossipResponse{})
@@ -142,8 +148,9 @@ func (ga *GossipActor) onGossipRequest(r *GossipRequest, ctx actor.Context) {
 	//})
 }
 
-func (ga *GossipActor) onSetGossipStateKey(r *SetGossipStateKey, ctx actor.Context) {
-	key, message := r.Key, r.Value
+func (ga *GossipActor) onSetGossipState(r *SetGossipState, ctx actor.Context) {
+	key, message := r.GossipStateKey, r.Value
+	ctx.Logger().Debug("Setting GossipState", slog.String("key", key), slog.Any("message", message))
 	ga.gossip.SetState(key, message)
 
 	if ctx.Sender() != nil {
@@ -176,8 +183,8 @@ func (ga *GossipActor) sendGossipForMember(member *Member, memberStateDelta *Mem
 	// for timeout, blocking other gossips from getting through
 
 	msg := GossipRequest{
-		MemberId: member.Id,
-		State:    memberStateDelta.State,
+		FromMemberId: member.Id,
+		State:        memberStateDelta.State,
 	}
 	future := ctx.RequestFuture(pid, &msg, ga.gossipRequestTimeout)
 
@@ -200,4 +207,19 @@ func (ga *GossipActor) sendGossipForMember(member *Member, memberStateDelta *Mem
 			ga.ReceiveState(resp.State, ctx)
 		}
 	})
+}
+
+func (ga *GossipActor) onSetGossipMapState(r *SetGossipMapState, ctx actor.Context) {
+	ga.gossip.SetMapState(r.GossipStateKey, r.MapKey, r.Value)
+}
+
+func (ga *GossipActor) onRemoveGossipMapState(r *RemoveGossipMapState, ctx actor.Context) {
+	ga.gossip.RemoveMapState(r.GossipStateKey, r.MapKey)
+}
+
+func (ga *GossipActor) onGetGossipMapKeys(r *GetGossipMapKeysRequest, ctx actor.Context) {
+
+	res := ga.gossip.GetMapKeys(r.GossipStateKey)
+
+	ctx.Respond(res)
 }

@@ -39,6 +39,7 @@ func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
 	disconnectChan := make(chan bool, 1)
 	s.remote.edpManager.endpointReaderConnections.Store(stream, disconnectChan)
 	defer func() {
+		s.remote.Logger().Info("EndpointReader is closing")
 		close(disconnectChan)
 	}()
 
@@ -88,6 +89,7 @@ func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
 			m := t.MessageBatch
 			err := s.onMessageBatch(m)
 			if err != nil {
+				s.remote.Logger().Error("EndpointReader failed to handle message batch", slog.Any("error", err))
 				return err
 			}
 		default:

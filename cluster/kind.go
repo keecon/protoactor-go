@@ -52,6 +52,6 @@ func (ak *ActivatedKind) Inc() {
 	atomic.AddInt32(&ak.count, 1)
 }
 
-func (ak *ActivatedKind) Dev() {
+func (ak *ActivatedKind) Dec() {
 	atomic.AddInt32(&ak.count, -1)
 }

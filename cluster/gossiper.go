@@ -1,4 +1,4 @@
-// Copyright (C) 2015-2022 Asynkron AB All rights reserved
+// Copyright (C) 2017 - 2024 Asynkron AB All rights reserved
 
 package cluster
 
@@ -70,7 +70,7 @@ func newGossiper(cl *Cluster, opts ...Option) (*Gossiper, error) {
 
 func (g *Gossiper) GetState(key string) (map[string]*GossipKeyValue, error) {
 	if g.throttler() == actor.Open {
-		g.cluster.Logger().Debug(fmt.Sprintf("Gossiper getting state from %s", g.pid))
+		g.cluster.Logger().Debug("Gossiper getting state", slog.String("key", key), slog.String("remote", g.pid.String()))
 	}
 
 	msg := NewGetGossipStateRequest(key)
@@ -104,7 +104,7 @@ func (g *Gossiper) GetState(key string) (map[string]*GossipKeyValue, error) {
 // SetState Sends fire and forget message to update member state
 func (g *Gossiper) SetState(key string, value proto.Message) {
 	if g.throttler() == actor.Open {
-		g.cluster.Logger().Debug(fmt.Sprintf("Gossiper setting state %s to %s", key, g.pid))
+		g.cluster.Logger().Debug("Gossiper setting state", slog.String("key", key), slog.String("remote", g.pid.String()))
 	}
 
 	if g.pid == nil {
@@ -118,7 +118,7 @@ func (g *Gossiper) SetState(key string, value proto.Message) {
 // SetStateRequest Sends a Request (that blocks) to update member state
 func (g *Gossiper) SetStateRequest(key string, value proto.Message) error {
 	if g.throttler() == actor.Open {
-		g.cluster.Logger().Debug(fmt.Sprintf("Gossiper setting state %s to %s", key, g.pid))
+		g.cluster.Logger().Debug("Gossiper setting state", slog.String("key", key), slog.String("remote", g.pid.String()))
 	}
 
 	if g.pid == nil {
@@ -174,6 +174,7 @@ func (g *Gossiper) RegisterConsensusCheck(key string, getValue func(*anypb.Any) 
 
 func (g *Gossiper) StartGossiping() error {
 	var err error
+	g.cluster.Logger().Info("Starting gossip")
 	g.pid, err = g.cluster.ActorSystem.Root.SpawnNamed(actor.PropsFromProducerWithActorSystem(func(system *actor.ActorSystem) actor.Actor {
 		return NewGossipActor(
 			g.cluster.Config.GossipRequestTimeout,
@@ -186,7 +187,6 @@ func (g *Gossiper) StartGossiping() error {
 			system,
 		)
 	}), g.GossipActorName)
-
 	if err != nil {
 		g.cluster.Logger().Error("Failed to start gossip actor", slog.Any("error", err))
 		return err
@@ -222,7 +222,7 @@ func (g *Gossiper) Shutdown() {
 }
 
 func (g *Gossiper) gossipLoop() {
-	g.cluster.Logger().Info("Starting gossip loop")
+	g.cluster.Logger().Debug("Starting gossip loop")
 
 	// create a ticker that will tick each GossipInterval milliseconds
 	// we do not use sleep as sleep puts the goroutine out of the scheduler
@@ -232,20 +232,31 @@ breakLoop:
 	for !g.cluster.ActorSystem.IsStopped() {
 		select {
 		case <-g.close:
-			g.cluster.Logger().Info("Stopping Gossip Loop")
+			g.cluster.Logger().Debug("Stopping Gossip Loop")
 			break breakLoop
 		case <-ticker.C:
-
 			g.blockExpiredHeartbeats()
 			g.blockGracefullyLeft()
-
-			g.SetState(HearthbeatKey, &MemberHeartbeat{
-				// todo collect the actor statistics
-				ActorStatistics: &ActorStatistics{},
+			g.SetState(HeartbeatKey, &MemberHeartbeat{
+				ActorStatistics: &ActorStatistics{
+					ActorCount: g.GetActorCount(),
+				},
 			})
 			g.SendState()
 		}
 	}
+}
+
+func (g *Gossiper) GetActorCount() map[string]int64 {
+	m := make(map[string]int64)
+	clusterKinds := g.cluster.GetClusterKinds()
+	for _, kindName := range clusterKinds {
+		kind := g.cluster.GetClusterKind(kindName)
+		m[kindName] = int64(kind.count)
+	}
+	g.cluster.Logger().Debug("Actor Count", slog.Any("count", m))
+
+	return m
 }
 
 // blockExpiredHeartbeats blocks members that have not sent a heartbeat for a long time
@@ -253,7 +264,7 @@ func (g *Gossiper) blockExpiredHeartbeats() {
 	if g.cluster.Config.GossipInterval == 0 {
 		return
 	}
-	t, err := g.GetState(HearthbeatKey)
+	t, err := g.GetState(HeartbeatKey)
 	if err != nil {
 		g.cluster.Logger().Error("Could not get heartbeat state", slog.Any("error", err))
 		return
@@ -300,5 +311,5 @@ func (g *Gossiper) blockGracefullyLeft() {
 }
 
 func (g *Gossiper) throttledLog(counter int32) {
-	g.cluster.Logger().Debug(fmt.Sprintf("[Gossiper] Gossiper Setting State to %s", g.pid), slog.Int("throttled", int(counter)))
+	g.cluster.Logger().Debug("Gossiper Setting State", slog.String("remote", g.pid.String()), slog.Int("throttled", int(counter)))
 }

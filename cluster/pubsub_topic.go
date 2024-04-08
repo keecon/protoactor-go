@@ -3,7 +3,6 @@ package cluster
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -165,19 +164,19 @@ func (t *TopicActor) logDeliveryErrors(reports []*SubscriberDeliveryReport, logg
 		for i, report := range reports {
 			subscribers[i] = report.Subscriber.String()
 		}
-		logger.Error("Topic following subscribers could not process the batch", slog.String("topic", t.topic), slog.String("subscribers", strings.Join(subscribers, ",")))
+		logger.Error("Topic following subscribers could not process the batch", slog.String("topic", t.topic), slog.Any("subscribers", subscribers))
 	}
 }
 
 // unsubscribeUnreachablePidSubscribers deletes all subscribers that have a PID that is unreachable
-func (t *TopicActor) unsubscribeUnreachablePidSubscribers(_ actor.Context, allInvalidDeliveryReports []*SubscriberDeliveryReport) {
+func (t *TopicActor) unsubscribeUnreachablePidSubscribers(c actor.Context, allInvalidDeliveryReports []*SubscriberDeliveryReport) {
 	subscribers := make([]subscribeIdentityStruct, 0, len(allInvalidDeliveryReports))
 	for _, r := range allInvalidDeliveryReports {
 		if r.Subscriber.GetPid() != nil && r.Status == DeliveryStatus_SubscriberNoLongerReachable {
 			subscribers = append(subscribers, newSubscribeIdentityStruct(r.Subscriber))
 		}
 	}
-	t.removeSubscribers(subscribers, nil)
+	t.removeSubscribers(subscribers, c.Logger())
 }
 
 // onClusterTopologyChanged handles a ClusterTopology message
@@ -217,7 +216,7 @@ func (t *TopicActor) unsubscribeSubscribersOnMembersThatLeft(c actor.Context) {
 			}
 		}
 	}
-	t.removeSubscribers(subscribersThatLeft, nil)
+	t.removeSubscribers(subscribersThatLeft, c.Logger())
 }
 
 // removeSubscribers remove subscribers from the topic
@@ -227,7 +226,16 @@ func (t *TopicActor) removeSubscribers(subscribersThatLeft []subscribeIdentitySt
 			delete(t.subscribers, subscriber)
 		}
 		if t.shouldThrottle() == actor.Open {
-			logger.Warn("Topic removed subscribers, because they are dead or they are on members that left the clusterIdentity:", slog.String("topic", t.topic), slog.Any("subscribers", subscribersThatLeft))
+			// slog json handler cannot print private fields
+			ids := make([]string, 0, len(subscribersThatLeft))
+			for _, subscriber := range subscribersThatLeft {
+				if subscriber.isPID {
+					ids = append(ids, subscriber.pid.id)
+				} else {
+					ids = append(ids, subscriber.clusterIdentity.identity)
+				}
+			}
+			logger.Warn("Topic removed subscribers, because they are dead or they are on members that left the clusterIdentity:", slog.String("topic", t.topic), slog.Any("subscribers", ids))
 		}
 		t.saveSubscriptionsInTopicActor(logger)
 	}

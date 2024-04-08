@@ -6,12 +6,12 @@ import (
 
 // Used to query the GossipActor about a given key status
 type GetGossipStateRequest struct {
-	Key string
+	GossipStateKey string
 }
 
 // Create a new GetGossipStateRequest value and return it back
 func NewGetGossipStateRequest(key string) GetGossipStateRequest {
-	request := GetGossipStateRequest{Key: key}
+	request := GetGossipStateRequest{GossipStateKey: key}
 	return request
 }
 
@@ -27,17 +27,40 @@ func NewGetGossipStateResponse(state map[string]*GossipKeyValue) GetGossipStateR
 	return value
 }
 
-// Used to setup Gossip Status Keys in the GossipActor
-type SetGossipStateKey struct {
-	Key   string
-	Value proto.Message
+// Used to setup Gossip State Keys in the GossipActor
+type SetGossipState struct {
+	GossipStateKey string
+	Value          proto.Message
 }
 
-// Create a new SetGossipStateKey value with the given data and return it back
-func NewGossipStateKey(key string, value proto.Message) SetGossipStateKey {
-	statusKey := SetGossipStateKey{
-		Key:   key,
-		Value: value,
+// Used to set Gossip State containing GossipMap data type in the GossipActor
+type SetGossipMapState struct {
+	GossipStateKey string
+	MapKey         string
+	Value          proto.Message
+}
+
+// Used to remove Gossip State containing GossipMap data type in the GossipActor
+type RemoveGossipMapState struct {
+	GossipStateKey string
+	MapKey         string
+}
+
+// Used to query the GossipActor about the keys in a GossipMap
+type GetGossipMapKeysRequest struct {
+	GossipStateKey string
+}
+
+// Used by the GossipActor to send back the keys in a GossipMap
+type GetGossipMapKeysResponse struct {
+	MapKeys []string
+}
+
+// Create a new SetGossipState value with the given data and return it back
+func NewGossipStateKey(key string, value proto.Message) SetGossipState {
+	statusKey := SetGossipState{
+		GossipStateKey: key,
+		Value:          value,
 	}
 	return statusKey
 }

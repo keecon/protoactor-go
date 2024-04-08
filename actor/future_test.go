@@ -117,3 +117,20 @@ func TestFuture_Result_Success(t *testing.T) {
 	resp := assertFutureSuccess(future, t)
 	a.Equal(EchoResponse{}, resp)
 }
+
+func testWork(ctx Context) {
+	if _, ok := ctx.Message().(string); ok {
+		ctx.Respond("pong")
+	}
+}
+
+func BenchmarkProto(b *testing.B) {
+	system := NewActorSystem()
+	pid := system.Root.Spawn(PropsFromFunc(testWork))
+	for i := 0; i < b.N; i++ {
+		_, err := system.Root.RequestFuture(pid, "ping", time.Second).Result()
+		if err != nil {
+			panic(err)
+		}
+	}
+}
