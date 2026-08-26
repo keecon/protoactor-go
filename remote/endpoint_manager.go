@@ -65,7 +65,7 @@ type endpointManager struct {
 	endpointSub               *eventstream.Subscription
 	endpointSupervisor        *actor.PID
 	activator                 *actor.PID
-	stopped                   bool
+	stopped                   atomic.Bool
 	endpointReaderConnections *sync.Map
 }
 
@@ -73,7 +73,6 @@ func newEndpointManager(r *Remote) *endpointManager {
 	return &endpointManager{
 		connections:               &sync.Map{},
 		remote:                    r,
-		stopped:                   false,
 		endpointReaderConnections: &sync.Map{},
 	}
 }
@@ -107,7 +106,7 @@ func (em *endpointManager) waiting(timeout time.Duration) error {
 }
 
 func (em *endpointManager) stop() {
-	em.stopped = true
+	em.stopped.Store(true)
 	r := em.remote
 	r.actorSystem.EventStream.Unsubscribe(em.endpointSub)
 	if err := em.stopActivator(); err != nil {
@@ -117,7 +116,6 @@ func (em *endpointManager) stop() {
 		em.remote.Logger().Error("stop endpoint supervisor failed", slog.Any("error", err))
 	}
 	em.endpointSub = nil
-	em.connections = nil
 	if em.endpointReaderConnections != nil {
 		em.endpointReaderConnections.Range(func(key interface{}, value interface{}) bool {
 			channel := value.(chan bool)
@@ -165,6 +163,10 @@ func (em *endpointManager) stopSupervisor() error {
 }
 
 func (em *endpointManager) endpointEvent(evn interface{}) {
+	if em.stopped.Load() {
+		return
+	}
+
 	switch msg := evn.(type) {
 	case *EndpointTerminatedEvent:
 		em.remote.Logger().Debug("EndpointManager received endpoint terminated event, removing endpoint", slog.Any("message", evn))
@@ -180,7 +182,7 @@ func (em *endpointManager) endpointEvent(evn interface{}) {
 }
 
 func (em *endpointManager) remoteTerminate(msg *remoteTerminate) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
@@ -199,7 +201,7 @@ func (em *endpointManager) remoteTerminate(msg *remoteTerminate) {
 }
 
 func (em *endpointManager) remoteWatch(msg *remoteWatch) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
@@ -218,7 +220,7 @@ func (em *endpointManager) remoteWatch(msg *remoteWatch) {
 }
 
 func (em *endpointManager) remoteUnwatch(msg *remoteUnwatch) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
@@ -230,7 +232,7 @@ func (em *endpointManager) remoteUnwatch(msg *remoteUnwatch) {
 }
 
 func (em *endpointManager) remoteDeliver(msg *remoteDeliver) {
-	if em.stopped {
+	if em.stopped.Load() {
 		// send to deadletter
 		em.remote.actorSystem.EventStream.Publish(&actor.DeadLetterEvent{
 			PID:     msg.target,
@@ -253,6 +255,10 @@ func (em *endpointManager) remoteDeliver(msg *remoteDeliver) {
 }
 
 func (em *endpointManager) ensureConnected(address string) *endpoint {
+	if em.stopped.Load() {
+		return nil
+	}
+
 	e, ok := em.connections.Load(address)
 	if !ok {
 		el := newEndpointLazy(em, address)

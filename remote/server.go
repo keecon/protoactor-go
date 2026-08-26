@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/extensions"
@@ -15,7 +16,10 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-var extensionID = extensions.NextExtensionID()
+var (
+	extensionID    = extensions.NextExtensionID()
+	grpcLoggerOnce sync.Once
+)
 
 // Remote enables communication between actors across network boundaries.
 type Remote struct {
@@ -71,7 +75,9 @@ func (r *Remote) BlockList() *BlockList { return r.blocklist }
 
 // Start the remote server.
 func (r *Remote) Start() {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
+	grpcLoggerOnce.Do(func() {
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
+	})
 	lis, err := net.Listen("tcp", r.config.Address())
 	if err != nil {
 		panic(fmt.Errorf("failed to listen: %v", err))
