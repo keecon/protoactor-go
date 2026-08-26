@@ -109,7 +109,6 @@ func (ml *MemberList) Members() *MemberSet {
 
 func (ml *MemberList) UpdateClusterTopology(members Members) {
 	ml.mutex.Lock()
-	defer ml.mutex.Unlock()
 
 	// TLDR:
 	// this method basically filters out any member status in the blocked list
@@ -118,6 +117,7 @@ func (ml *MemberList) UpdateClusterTopology(members Members) {
 
 	topology, done, active, joined, left := ml.getTopologyChanges(members)
 	if done {
+		ml.mutex.Unlock()
 		return
 	}
 
@@ -131,12 +131,16 @@ func (ml *MemberList) UpdateClusterTopology(members Members) {
 	// notify that these members left
 	for _, m := range left.Members() {
 		ml.memberLeave(m)
-		ml.TerminateMember(m)
 	}
 
 	// notify that these members joined
 	for _, m := range joined.Members() {
 		ml.memberJoin(m)
+	}
+	ml.mutex.Unlock()
+
+	for _, m := range left.Members() {
+		ml.TerminateMember(m)
 	}
 
 	ml.cluster.ActorSystem.EventStream.Publish(topology)

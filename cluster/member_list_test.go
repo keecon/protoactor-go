@@ -4,9 +4,34 @@ import (
 	"fmt"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMemberListTopologySubscriberCanReadMembers(t *testing.T) {
+	c := newClusterForTest("test-topology-subscriber", nil)
+	memberList := NewMemberList(c)
+	done := make(chan struct{})
+	subscription := c.ActorSystem.EventStream.Subscribe(func(event interface{}) {
+		if _, ok := event.(*ClusterTopology); !ok {
+			return
+		}
+
+		_ = memberList.Length()
+		_ = memberList.Members()
+		close(done)
+	})
+	t.Cleanup(func() { c.ActorSystem.EventStream.Unsubscribe(subscription) })
+
+	go memberList.UpdateClusterTopology(newMembersForTest(1))
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("topology subscriber deadlocked while reading the member list")
+	}
+}
 
 //func TestPublishRaceCondition(t *testing.T) {
 //	actorSystem := actor.NewActorSystem()
@@ -193,7 +218,7 @@ func TestMemberList_getPartitionMember(t *testing.T) {
 		obj.UpdateClusterTopology(members)
 
 		testName := fmt.Sprintf("member*%d", v)
-                t.Run(testName, func(_ *testing.T) {
+		t.Run(testName, func(_ *testing.T) {
 			//assert := assert.New(t)
 			//
 			//identity := NewClusterIdentity("name", "kind")
