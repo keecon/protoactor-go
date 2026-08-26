@@ -43,8 +43,12 @@ type Provider struct {
 	deregistered        bool
 	shutdown            atomic.Bool
 	lifecycleMu         sync.Mutex
+	leadershipMu        sync.Mutex
+	starts              sync.WaitGroup
 	done                chan struct{}
 	background          sync.WaitGroup
+	topologyOnce        sync.Once
+	topologyEvents      chan topologyEvent
 	self                *Node
 	members             map[string]*Node // all, contains self.
 	clusterError        error
@@ -54,6 +58,12 @@ type Provider struct {
 	roleChangedListener RoleChangedListener
 	role                atomic.Int32
 	roleChangedChan     chan RoleType
+	connected           bool
+}
+
+type topologyEvent struct {
+	members []*cluster.Member
+	done    chan struct{}
 }
 
 // New creates a ZooKeeper cluster provider with the given options.
@@ -72,6 +82,7 @@ func New(endpoints []string, opts ...Option) (*Provider, error) {
 		self:                &Node{},
 		members:             map[string]*Node{},
 		done:                make(chan struct{}),
+		topologyEvents:      make(chan topologyEvent),
 		revision:            0,
 		fullpath:            "",
 		roleChangedListener: zkCfg.RoleChanged,
@@ -118,8 +129,28 @@ func (p *Provider) init(c *cluster.Cluster) error {
 	return nil
 }
 
+func (p *Provider) beginStart() error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if p.shutdown.Load() {
+		return fmt.Errorf("ZooKeeper provider is shutting down")
+	}
+	p.starts.Add(1)
+	return nil
+}
+
 // StartMember registers the node and begins watching ZooKeeper for changes.
 func (p *Provider) StartMember(c *cluster.Cluster) error {
+	if err := p.beginStart(); err != nil {
+		return err
+	}
+	startComplete := false
+	defer func() {
+		if !startComplete {
+			p.starts.Done()
+		}
+	}()
+
 	if err := p.init(c); err != nil {
 		p.cluster.Logger().Error("init fail " + err.Error())
 		return err
@@ -140,16 +171,31 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	}
 	// initialize members
 	p.updateNodesWithSelf(nodes, version)
-	p.publishClusterTopologyEvent()
+	p.startTopologyEventLoop()
 	p.startRoleChangedNotifyLoop()
+	watchReady := make(chan struct{})
+	p.startWatching(true, watchReady)
+	p.starts.Done()
+	startComplete = true
+	p.publishClusterTopologyEventAndWait()
 	p.updateLeadership(nodes)
-	p.startWatching(true)
+	close(watchReady)
 
 	return nil
 }
 
 // StartClient initializes the provider without registering the node.
 func (p *Provider) StartClient(c *cluster.Cluster) error {
+	if err := p.beginStart(); err != nil {
+		return err
+	}
+	startComplete := false
+	defer func() {
+		if !startComplete {
+			p.starts.Done()
+		}
+	}()
+
 	if err := p.init(c); err != nil {
 		return err
 	}
@@ -159,8 +205,13 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 	}
 	// initialize members
 	p.updateNodes(nodes, version)
-	p.publishClusterTopologyEvent()
-	p.startWatching(false)
+	p.startTopologyEventLoop()
+	watchReady := make(chan struct{})
+	p.startWatching(false, watchReady)
+	p.starts.Done()
+	startComplete = true
+	p.publishClusterTopologyEventAndWait()
+	close(watchReady)
 
 	return nil
 }
@@ -170,12 +221,15 @@ func (p *Provider) Shutdown(_ bool) error {
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
 	if !p.shutdown.Swap(true) {
+		p.starts.Wait()
 		close(p.done)
 		p.background.Wait()
 	}
 
 	if !p.deregistered {
-		p.updateLeadership(nil)
+		if p.self != nil && p.self.ID != "" {
+			p.updateLeadership(nil)
+		}
 		if err := p.deregisterService(); err != nil {
 			p.cluster.Logger().Error("deregisterMember", slog.Any("error", err))
 			return err
@@ -232,14 +286,15 @@ func (p *Provider) createClusterNode(dir string) error {
 }
 
 func (p *Provider) deregisterService() error {
+	var deleteErr error
 	if p.fullpath != "" {
-		if err := p.conn.Delete(p.fullpath, -1); err != nil {
-			return err
+		if err := p.conn.Delete(p.fullpath, -1); err != nil && err != zk.ErrNoNode {
+			deleteErr = err
 		}
 	}
 	p.fullpath = ""
 	p.conn.Close()
-	return nil
+	return deleteErr
 }
 
 func (p *Provider) keepWatching(ctx context.Context, registerSelf bool) error {
@@ -345,9 +400,7 @@ func (p *Provider) containSelf(ns []*Node) bool {
 }
 
 func (p *Provider) startRoleChangedNotifyLoop() {
-	p.background.Add(1)
 	go func() {
-		defer p.background.Done()
 		for {
 			select {
 			case role := <-p.roleChangedChan:
@@ -362,6 +415,12 @@ func (p *Provider) startRoleChangedNotifyLoop() {
 }
 
 func (p *Provider) updateLeadership(ns []*Node) {
+	p.leadershipMu.Lock()
+	defer p.leadershipMu.Unlock()
+
+	if p.shutdown.Load() || !p.connected {
+		ns = nil
+	}
 	role := Follower
 	if p.isLeaderOf(ns) {
 		role = Leader
@@ -386,10 +445,17 @@ func (p *Provider) onEvent(evt zk.Event) {
 	}
 	switch evt.State {
 	case zk.StateConnecting, zk.StateDisconnected, zk.StateExpired:
-		if RoleType(p.role.Swap(int32(Follower))) == Leader {
+		p.leadershipMu.Lock()
+		p.connected = false
+		wasLeader := RoleType(p.role.Swap(int32(Follower))) == Leader
+		p.leadershipMu.Unlock()
+		if wasLeader {
 			p.notifyRoleChanged(Follower)
 		}
 	case zk.StateConnected, zk.StateHasSession:
+		p.leadershipMu.Lock()
+		p.connected = true
+		p.leadershipMu.Unlock()
 	}
 }
 
@@ -411,11 +477,16 @@ func (p *Provider) isLeaderOf(ns []*Node) bool {
 	return false
 }
 
-func (p *Provider) startWatching(registerSelf bool) {
+func (p *Provider) startWatching(registerSelf bool, ready <-chan struct{}) {
 	ctx := context.TODO()
 	p.background.Add(1)
 	go func() {
 		defer p.background.Done()
+		select {
+		case <-ready:
+		case <-p.done:
+			return
+		}
 		for !p.shutdown.Load() {
 			if err := p.keepWatching(ctx, registerSelf); err != nil {
 				p.cluster.Logger().Error("Failed to keepWatching.", slog.Any("error", err))
@@ -508,6 +579,56 @@ func (p *Provider) createClusterTopologyEvent() []*cluster.Member {
 
 func (p *Provider) publishClusterTopologyEvent() {
 	res := p.createClusterTopologyEvent()
+	p.enqueueClusterTopologyEvent(res, false)
+}
+
+func (p *Provider) publishClusterTopologyEventAndWait() {
+	res := p.createClusterTopologyEvent()
+	p.enqueueClusterTopologyEvent(res, true)
+}
+
+func (p *Provider) enqueueClusterTopologyEvent(members []*cluster.Member, wait bool) {
+	var completed chan struct{}
+	if wait {
+		completed = make(chan struct{})
+	}
+	event := topologyEvent{members: members, done: completed}
+	select {
+	case <-p.done:
+		return
+	case p.topologyEvents <- event:
+	}
+	if completed != nil {
+		<-completed
+	}
+}
+
+func (p *Provider) startTopologyEventLoop() {
+	p.topologyOnce.Do(func() {
+		go func() {
+			for {
+				select {
+				case <-p.done:
+					return
+				default:
+				}
+				select {
+				case <-p.done:
+					return
+				case event := <-p.topologyEvents:
+					if !p.shutdown.Load() {
+						p.publishClusterTopologyMembers(event.members)
+					}
+					if event.done != nil {
+						close(event.done)
+					}
+				}
+			}
+		}()
+	})
+}
+
+func (p *Provider) publishClusterTopologyMembers(res []*cluster.Member) {
 	p.cluster.Logger().Info("Update cluster.", slog.Int("members", len(res)))
 	p.cluster.MemberList.UpdateClusterTopology(res)
 }
