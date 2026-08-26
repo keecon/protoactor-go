@@ -55,3 +55,7 @@ func (ak *ActivatedKind) Inc() {
 func (ak *ActivatedKind) Dec() {
 	atomic.AddInt32(&ak.count, -1)
 }
+
+func (ak *ActivatedKind) Count() int32 {
+	return atomic.LoadInt32(&ak.count)
+}

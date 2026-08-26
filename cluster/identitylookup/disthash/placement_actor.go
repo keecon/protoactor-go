@@ -1,12 +1,17 @@
 package disthash
 
 import (
+	"context"
 	"log/slog"
+	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
 	clustering "github.com/asynkron/protoactor-go/cluster"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
+// GrainMeta tracks the PID associated with a cluster identity.
 type GrainMeta struct {
 	ID  *clustering.ClusterIdentity
 	PID *actor.PID
@@ -48,8 +53,16 @@ func (p *placementActor) Receive(ctx actor.Context) {
 
 func (p *placementActor) onTerminated(msg *actor.Terminated) {
 	found, key, meta := p.pidToMeta(msg.Who)
+	if !found {
+		// actor was not tracked; log and skip cleanup
+		p.cluster.Logger().Warn("Terminated actor not found", slog.Any("pid", msg.Who))
+		return
+	}
+
 	clusterKind := p.cluster.GetClusterKind(meta.ID.Kind)
 	clusterKind.Dec()
+
+	p.updateVirtualActorsGauge()
 
 	activationTerminated := &clustering.ActivationTerminated{
 		Pid:             msg.Who,
@@ -57,13 +70,11 @@ func (p *placementActor) onTerminated(msg *actor.Terminated) {
 	}
 	p.partitionManager.cluster.MemberList.BroadcastEvent(activationTerminated, true)
 
-	if found {
-		delete(p.actors, *key)
-	}
+	delete(p.actors, *key)
 }
 
 func (p *placementActor) onStopping(ctx actor.Context) {
-	futures := make(map[string]*actor.Future, len(p.actors))
+	futures := make(map[string]actor.Future, len(p.actors))
 
 	for key, meta := range p.actors {
 		futures[key] = ctx.PoisonFuture(meta.PID)
@@ -92,15 +103,25 @@ func (p *placementActor) onActivationRequest(msg *clustering.ActivationRequest, 
 	if clusterKind == nil {
 		ctx.Logger().Error("Unknown cluster kind", slog.String("kind", msg.ClusterIdentity.Kind))
 
-		// TODO: what to do here?
-		ctx.Respond(nil)
+		// Reply with a failed activation so callers can handle the error.
+		ctx.Respond(&clustering.ActivationResponse{Failed: true})
 		return
 	}
 
 	props := clustering.WithClusterIdentity(clusterKind.Props, msg.ClusterIdentity)
 
+	start := time.Now()
 	pid := ctx.SpawnPrefix(props, msg.ClusterIdentity.Identity)
 	clusterKind.Inc()
+	if p.cluster.MetricsEnabled() {
+		_ctx := context.Background()
+		attrs := append(
+			actor.SystemLabels(p.cluster.ActorSystem),
+			attribute.String("clusterkind", msg.ClusterIdentity.Kind),
+		)
+		p.cluster.Metrics().ClusterActorSpawnDuration.Record(_ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
+		p.updateVirtualActorsGauge()
+	}
 
 	p.actors[key] = GrainMeta{
 		ID:  msg.ClusterIdentity,
@@ -112,6 +133,13 @@ func (p *placementActor) onActivationRequest(msg *clustering.ActivationRequest, 
 	}
 
 	ctx.Respond(response)
+}
+
+func (p *placementActor) updateVirtualActorsGauge() {
+	if !p.cluster.MetricsEnabled() {
+		return
+	}
+	p.cluster.Metrics().VirtualActorsCount.Set(p.cluster.VirtualActorCount())
 }
 
 func (p *placementActor) pidToMeta(pid *actor.PID) (bool, *string, *GrainMeta) {

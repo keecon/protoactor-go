@@ -4,6 +4,7 @@ package cluster
 
 import (
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // customary type that defines a states sender callback.
@@ -17,6 +18,7 @@ type GossipStateStorer interface {
 	SetMapState(stateKey string, mapKey string, value proto.Message)
 	RemoveMapState(stateKey string, mapKey string)
 	GetMapKeys(stateKey string) []string
+	GetMapState(stateKey string, mapKey string) *anypb.Any
 }
 
 // This interface must be implemented by any value that

@@ -1,3 +1,4 @@
+// Package cluster enables distributed actors and grain management.
 package cluster
 
 import (
@@ -9,6 +10,7 @@ import (
 	"github.com/asynkron/gofun/set"
 
 	"github.com/asynkron/protoactor-go/actor"
+	clustermetrics "github.com/asynkron/protoactor-go/cluster/metrics"
 	"github.com/asynkron/protoactor-go/extensions"
 	"github.com/asynkron/protoactor-go/remote"
 )
@@ -26,6 +28,9 @@ type Cluster struct {
 	IdentityLookup IdentityLookup
 	kinds          map[string]*ActivatedKind
 	context        Context
+
+	metrics        *clustermetrics.ClusterMetrics
+	metricsEnabled bool
 }
 
 var _ extensions.Extension = &Cluster{}
@@ -37,6 +42,11 @@ func New(actorSystem *actor.ActorSystem, config *Config) *Cluster {
 		kinds:       map[string]*ActivatedKind{},
 	}
 	actorSystem.Extensions.Register(c)
+
+	if actorSystem.Config.MetricsEnabled {
+		c.metrics = clustermetrics.NewClusterMetrics(actorSystem.Logger())
+		c.metricsEnabled = true
+	}
 
 	c.context = config.ClusterContextProducer(c)
 	c.PidCache = NewPidCache()
@@ -62,8 +72,23 @@ func (c *Cluster) subscribeToTopologyEvents() {
 			for _, member := range clusterTopology.Left {
 				c.PidCache.RemoveByMember(member)
 			}
+			if c.metricsEnabled {
+				c.metrics.ClusterMembersCount.Set(int64(len(clusterTopology.Members)))
+			}
 		}
 	})
+}
+
+func (c *Cluster) MetricsEnabled() bool { return c.metricsEnabled }
+
+func (c *Cluster) Metrics() *clustermetrics.ClusterMetrics { return c.metrics }
+
+func (c *Cluster) VirtualActorCount() int64 {
+	var total int64
+	for _, k := range c.kinds {
+		total += int64(k.Count())
+	}
+	return total
 }
 
 func (c *Cluster) ExtensionID() extensions.ExtensionID {
@@ -157,6 +182,8 @@ func (c *Cluster) Shutdown(graceful bool) {
 	c.Logger().Info("Stopped Proto.Actor cluster", slog.String("address", address))
 }
 
+// Get resolves the PID for the given identity and kind.
+// It returns nil if the kind is not registered or the activation fails.
 func (c *Cluster) Get(identity string, kind string) *actor.PID {
 	return c.IdentityLookup.Get(NewClusterIdentity(identity, kind))
 }
@@ -165,7 +192,7 @@ func (c *Cluster) Request(identity string, kind string, message interface{}, opt
 	return c.context.Request(identity, kind, message, option...)
 }
 
-func (c *Cluster) RequestFuture(identity string, kind string, message interface{}, option ...GrainCallOption) (*actor.Future, error) {
+func (c *Cluster) RequestFuture(identity string, kind string, message interface{}, option ...GrainCallOption) (actor.Future, error) {
 	return c.context.RequestFuture(identity, kind, message, option...)
 }
 

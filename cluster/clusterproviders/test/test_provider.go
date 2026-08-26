@@ -9,28 +9,30 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+// ProviderConfig holds configuration values for the in-memory test provider.
 type ProviderConfig struct {
-	// ServiceTtl is the time to live for services. Default: 3s
-	ServiceTtl time.Duration
-	// RefreshTtl is the time between refreshes of the service ttl. Default: 1s
-	RefreshTtl time.Duration
+	// ServiceTTL is the time to live for services. Default: 3s
+	ServiceTTL time.Duration
+	// RefreshTTL is the time between refreshes of the service ttl. Default: 1s
+	RefreshTTL time.Duration
 	// DeregisterCritical is the time after which a service is deregistered if it is not refreshed. Default: 10s
 	DeregisterCritical time.Duration
 }
 
+// ProviderOption configures a test provider instance.
 type ProviderOption func(config *ProviderConfig)
 
-// WithTestProviderServiceTtl sets the service ttl. Default: 3s
-func WithTestProviderServiceTtl(serviceTtl time.Duration) ProviderOption {
+// WithTestProviderServiceTTL sets the service ttl. Default: 3s
+func WithTestProviderServiceTTL(serviceTTL time.Duration) ProviderOption {
 	return func(config *ProviderConfig) {
-		config.ServiceTtl = serviceTtl
+		config.ServiceTTL = serviceTTL
 	}
 }
 
-// WithTestProviderRefreshTtl sets the refresh ttl. Default: 1s
-func WithTestProviderRefreshTtl(refreshTtl time.Duration) ProviderOption {
+// WithTestProviderRefreshTTL sets the refresh ttl. Default: 1s
+func WithTestProviderRefreshTTL(refreshTTL time.Duration) ProviderOption {
 	return func(config *ProviderConfig) {
-		config.RefreshTtl = refreshTtl
+		config.RefreshTTL = refreshTTL
 	}
 }
 
@@ -41,6 +43,7 @@ func WithTestProviderDeregisterCritical(deregisterCritical time.Duration) Provid
 	}
 }
 
+// Provider implements cluster.ClusterProvider using an in-memory agent.
 type Provider struct {
 	memberList *cluster.MemberList
 	config     *ProviderConfig
@@ -51,10 +54,11 @@ type Provider struct {
 	cluster         *cluster.Cluster
 }
 
+// NewTestProvider creates a new Provider backed by the given in-memory agent.
 func NewTestProvider(agent *InMemAgent, options ...ProviderOption) *Provider {
 	config := &ProviderConfig{
-		ServiceTtl:         time.Second * 3,
-		RefreshTtl:         time.Second,
+		ServiceTTL:         time.Second * 3,
+		RefreshTTL:         time.Second,
 		DeregisterCritical: time.Second * 10,
 	}
 	for _, option := range options {
@@ -66,6 +70,7 @@ func NewTestProvider(agent *InMemAgent, options ...ProviderOption) *Provider {
 	}
 }
 
+// StartMember starts the provider as a cluster member.
 func (t *Provider) StartMember(c *cluster.Cluster) error {
 
 	c.ActorSystem.Logger().Debug("start cluster member")
@@ -77,12 +82,13 @@ func (t *Provider) StartMember(c *cluster.Cluster) error {
 	kinds := c.GetClusterKinds()
 	t.cluster = c
 	t.id = c.ActorSystem.ID
-	t.startTtlReport()
+	t.startTTLReport()
 	t.agent.SubscribeStatusUpdate(t.notifyStatuses)
 	t.agent.RegisterService(NewAgentServiceStatus(t.id, host, port, kinds))
 	return nil
 }
 
+// StartClient starts the provider in client mode without registering services.
 func (t *Provider) StartClient(cluster *cluster.Cluster) error {
 	t.memberList = cluster.MemberList
 	t.id = cluster.ActorSystem.ID
@@ -91,6 +97,7 @@ func (t *Provider) StartClient(cluster *cluster.Cluster) error {
 	return nil
 }
 
+// Shutdown stops the provider and deregisters its service.
 func (t *Provider) Shutdown(_ bool) error {
 	t.cluster.Logger().Debug("Unregistering service", slog.String("service", t.id))
 	if t.ttlReportTicker != nil {
@@ -120,9 +127,9 @@ func (t *Provider) notifyStatuses() {
 	t.memberList.UpdateClusterTopology(members)
 }
 
-// startTtlReport starts the ttl report loop.
-func (t *Provider) startTtlReport() {
-	t.ttlReportTicker = time.NewTicker(t.config.RefreshTtl)
+// startTTLReport starts the ttl report loop.
+func (t *Provider) startTTLReport() {
+	t.ttlReportTicker = time.NewTicker(t.config.RefreshTTL)
 	go func() {
 		for range t.ttlReportTicker.C {
 			t.agent.RefreshServiceTTL(t.id)
@@ -130,6 +137,7 @@ func (t *Provider) startTtlReport() {
 	}()
 }
 
+// InMemAgent is a lightweight service registry used for testing.
 type InMemAgent struct {
 	services     map[string]AgentServiceStatus
 	servicesLock *sync.RWMutex
@@ -138,6 +146,7 @@ type InMemAgent struct {
 	statusUpdateHandlersLock *sync.RWMutex
 }
 
+// NewInMemAgent returns a new in-memory agent.
 func NewInMemAgent() *InMemAgent {
 	return &InMemAgent{
 		services:                 make(map[string]AgentServiceStatus),
@@ -202,6 +211,7 @@ func (m *InMemAgent) onStatusUpdate() {
 	}
 }
 
+// AgentServiceStatus contains metadata about a registered service.
 type AgentServiceStatus struct {
 	ID    string
 	TTL   time.Time // last alive time
@@ -221,6 +231,7 @@ func NewAgentServiceStatus(id string, host string, port int, kinds []string) Age
 	}
 }
 
+// Alive reports whether the service TTL has not expired.
 func (a AgentServiceStatus) Alive() bool {
-	return time.Now().Sub(a.TTL) <= (time.Second * 5)
+	return time.Since(a.TTL) <= 5*time.Second
 }

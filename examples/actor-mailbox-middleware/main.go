@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"time"
 
 	console "github.com/asynkron/goconsole"
 	"github.com/asynkron/protoactor-go/actor"
@@ -35,6 +36,8 @@ func main() {
 		actor.WithMailbox(actor.Unbounded(&mailboxLogger{logger: system.Logger()})),
 	)
 	pid := rootContext.Spawn(props)
+	rootContext.Send(pid, "Hello")
+	time.Sleep(1 * time.Second)
 	rootContext.Send(pid, "Hello")
 	_, _ = console.ReadLine()
 }

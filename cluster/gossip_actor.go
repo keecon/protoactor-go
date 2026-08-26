@@ -49,6 +49,8 @@ func (ga *GossipActor) Receive(ctx actor.Context) {
 		ga.onSetGossipState(r, ctx)
 	case *SetGossipMapState:
 		ga.onSetGossipMapState(r, ctx)
+	case *GetGossipMapStateRequest:
+		ga.onGetGossipMapStateRequest(r, ctx)
 	case *RemoveGossipMapState:
 		ga.onRemoveGossipMapState(r, ctx)
 	case *GetGossipMapKeysRequest:
@@ -117,7 +119,6 @@ func (ga *GossipActor) onGossipRequest(r *GossipRequest, ctx actor.Context) {
 	}
 
 	ctx.Respond(&GossipResponse{})
-	return
 
 	// turn off acking for now
 
@@ -210,16 +211,37 @@ func (ga *GossipActor) sendGossipForMember(member *Member, memberStateDelta *Mem
 }
 
 func (ga *GossipActor) onSetGossipMapState(r *SetGossipMapState, ctx actor.Context) {
+	if ga.throttler() == actor.Open {
+		ctx.Logger().Debug("Setting GossipMapState", slog.String("key", r.MapKey), slog.Any("message", r.Value))
+	}
 	ga.gossip.SetMapState(r.GossipStateKey, r.MapKey, r.Value)
 }
 
 func (ga *GossipActor) onRemoveGossipMapState(r *RemoveGossipMapState, ctx actor.Context) {
+	if ga.throttler() == actor.Open {
+		ctx.Logger().Debug("Removing GossipMapState", slog.String("key", r.MapKey))
+	}
 	ga.gossip.RemoveMapState(r.GossipStateKey, r.MapKey)
 }
 
 func (ga *GossipActor) onGetGossipMapKeys(r *GetGossipMapKeysRequest, ctx actor.Context) {
+	if ga.throttler() == actor.Open {
+		ctx.Logger().Debug("Getting GossipMapKeys", slog.String("key", r.GossipStateKey))
+	}
+	keys := ga.gossip.GetMapKeys(r.GossipStateKey)
+	res := &GetGossipMapKeysResponse{
+		MapKeys: keys,
+	}
+	ctx.Respond(res)
+}
 
-	res := ga.gossip.GetMapKeys(r.GossipStateKey)
-
+func (ga *GossipActor) onGetGossipMapStateRequest(r *GetGossipMapStateRequest, ctx actor.Context) {
+	if ga.throttler() == actor.Open {
+		ctx.Logger().Debug("Setting GossipMapState", slog.String("key", r.MapKey))
+	}
+	a := ga.gossip.GetMapState(r.GossipStateKey, r.MapKey)
+	res := &GetGossipMapStateResponse{
+		Value: a,
+	}
 	ctx.Respond(res)
 }

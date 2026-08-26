@@ -117,8 +117,10 @@ process:
 		}
 	}
 
-	for _, ms := range m.middlewares {
-		ms.MailboxEmpty()
+	if user == 0 && (atomic.LoadInt32(&m.suspended) == 0) {
+		for _, ms := range m.middlewares {
+			ms.MailboxEmpty()
+		}
 	}
 }
 

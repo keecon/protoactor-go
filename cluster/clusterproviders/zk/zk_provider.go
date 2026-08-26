@@ -15,10 +15,13 @@ import (
 
 var _ cluster.ClusterProvider = new(Provider)
 
+// RoleType describes the leadership role of a node in the cluster.
 type RoleType int
 
 const (
+	// Follower indicates the node is not the leader.
 	Follower RoleType = iota
+	// Leader indicates the node currently holds leadership.
 	Leader
 )
 
@@ -29,6 +32,7 @@ func (r RoleType) String() string {
 	return "FOLLOWER"
 }
 
+// Provider implements a ZooKeeper-backed cluster provider.
 type Provider struct {
 	cluster             *cluster.Cluster
 	baseKey             string
@@ -47,7 +51,7 @@ type Provider struct {
 	roleChangedChan     chan RoleType
 }
 
-// New zk cluster provider with config
+// New creates a ZooKeeper cluster provider with the given options.
 func New(endpoints []string, opts ...Option) (*Provider, error) {
 	zkCfg := defaultConfig()
 	withEndpoints(endpoints)(zkCfg)
@@ -83,6 +87,7 @@ func New(endpoints []string, opts ...Option) (*Provider, error) {
 	return p, nil
 }
 
+// IsLeader reports whether this node currently has leadership.
 func (p *Provider) IsLeader() bool {
 	return p.role == Leader
 }
@@ -109,6 +114,7 @@ func (p *Provider) init(c *cluster.Cluster) error {
 	return nil
 }
 
+// StartMember registers the node and begins watching ZooKeeper for changes.
 func (p *Provider) StartMember(c *cluster.Cluster) error {
 	if err := p.init(c); err != nil {
 		p.cluster.Logger().Error("init fail " + err.Error())
@@ -139,6 +145,7 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	return nil
 }
 
+// StartClient initializes the provider without registering the node.
 func (p *Provider) StartClient(c *cluster.Cluster) error {
 	if err := p.init(c); err != nil {
 		return err
@@ -155,12 +162,12 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 	return nil
 }
 
-func (p *Provider) Shutdown(graceful bool) error {
+// Shutdown deregisters the node and stops background processing.
+func (p *Provider) Shutdown(_ bool) error {
 	p.shutdown = true
 	if !p.deregistered {
 		p.updateLeadership(nil)
-		err := p.deregisterService()
-		if err != nil {
+		if err := p.deregisterService(); err != nil {
 			p.cluster.Logger().Error("deregisterMember", slog.Any("error", err))
 			return err
 		}
@@ -217,7 +224,9 @@ func (p *Provider) createClusterNode(dir string) error {
 
 func (p *Provider) deregisterService() error {
 	if p.fullpath != "" {
-		p.conn.Delete(p.fullpath, -1)
+		if err := p.conn.Delete(p.fullpath, -1); err != nil {
+			return err
+		}
 	}
 	p.fullpath = ""
 	p.conn.Close()
@@ -259,8 +268,8 @@ func (p *Provider) addWatcher(ctx context.Context, clusterKey string) (<-chan zk
 	return p.addWatcher(ctx, clusterKey)
 }
 
-func (p *Provider) isChildrenChanged(ctx context.Context, stat *zk.Stat) bool {
-	return stat.Cversion != int32(p.revision)
+func (p *Provider) isChildrenChanged(_ context.Context, stat *zk.Stat) bool {
+        return stat.Cversion != int32(p.revision)
 }
 
 func (p *Provider) _keepWatching(registerSelf bool, stream <-chan zk.Event) error {
@@ -269,7 +278,9 @@ func (p *Provider) _keepWatching(registerSelf bool, stream <-chan zk.Event) erro
 		p.cluster.Logger().Error("Failure watching service.", slog.Any("error", err))
 		if registerSelf && p.clusterNotContainsSelfPath() {
 			p.cluster.Logger().Info("Register info lost, register self again")
-			p.registerService()
+			if err := p.registerService(); err != nil {
+				return err
+			}
 		}
 		return err
 	}
@@ -501,7 +512,7 @@ func (pro *Provider) createEphemeralChildNode(data []byte) (string, error) {
 				if err != nil {
 					return "", err
 				}
-				if exists == true {
+				if exists {
 					continue
 				}
 				_, err = pro.conn.Create(pth, []byte{}, 0, acl)

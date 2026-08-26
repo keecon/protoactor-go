@@ -28,7 +28,7 @@ func main() {
 
 func coloredConsoleLogging(system *actor.ActorSystem) *slog.Logger {
 	return slog.New(tint.NewHandler(os.Stdout, &tint.Options{
-		Level:      slog.LevelDebug,
+		Level:      slog.LevelError,
 		TimeFormat: time.RFC3339,
 		AddSource:  true,
 	})).With("lib", "Proto.Actor").
@@ -37,6 +37,22 @@ func coloredConsoleLogging(system *actor.ActorSystem) *slog.Logger {
 
 func startNode() *cluster.Cluster {
 	system := actor.NewActorSystem(actor.WithLoggerFactory(coloredConsoleLogging))
+	system.EventStream.Subscribe(func(evt interface{}) {
+		switch msg := evt.(type) {
+
+		//subscribe to Cluster Topology changes
+		case *cluster.ClusterTopology:
+			fmt.Printf("\nClusterTopology %v\n\n", msg)
+
+		//subscribe to Gossip updates, specifically MemberHeartbeat
+		case *cluster.GossipUpdate:
+			if msg.Key != "someGossipEntry" {
+				return
+			}
+
+			fmt.Printf("GossipUpdate %v\n", msg)
+		}
+	})
 
 	provider, _ := consul.New()
 	lookup := disthash.New()

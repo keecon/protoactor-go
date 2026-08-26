@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	context2 "golang.org/x/net/context"
 )
 
 // Register a known actor props by name
@@ -32,6 +35,8 @@ type activator struct {
 // Partition will then find next available Activator to spawn
 var ErrActivatorUnavailable = &ActivatorError{ResponseStatusCodeUNAVAILABLE.ToInt32(), true}
 
+// ActivatorError represents an error returned from the activator and controls
+// whether the activator should panic when it occurs.
 type ActivatorError struct {
 	Code       int32
 	DoNotPanic bool
@@ -48,7 +53,7 @@ func (r *Remote) ActivatorForAddress(address string) *actor.PID {
 }
 
 // SpawnFuture spawns a remote actor and returns a Future that completes once the actor is started
-func (r *Remote) SpawnFuture(address, name, kind string, timeout time.Duration) *actor.Future {
+func (r *Remote) SpawnFuture(address, name, kind string, timeout time.Duration) actor.Future {
 	activator := r.ActivatorForAddress(address)
 	f := r.actorSystem.Root.RequestFuture(activator, &ActorPidRequest{
 		Name: name,
@@ -106,12 +111,18 @@ func (a *activator) Receive(context actor.Context) {
 
 		// unnamed actor, assign auto ExtensionID
 		if name == "" {
-			name = context.ActorSystem().ProcessRegistry.NextId()
+			name = context.ActorSystem().ProcessRegistry.NextID()
 		}
 
 		pid, err := context.SpawnNamed(props, "Remote$"+name)
 
 		if err == nil {
+			if a.remote.metricsEnabled {
+				_ctx := context2.Background()
+				attrs := append(actor.SystemLabels(a.remote.actorSystem), attribute.String("kind", msg.Kind))
+				a.remote.metrics.RemoteActorSpawnCount.Add(_ctx, 1, metric.WithAttributes(attrs...))
+			}
+
 			response := &ActorPidResponse{Pid: pid}
 			context.Respond(response)
 		} else if err == actor.ErrNameExists {

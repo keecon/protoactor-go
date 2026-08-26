@@ -102,8 +102,17 @@ func (m *mockContext) Forward(_ *PID) {
 	m.Called()
 }
 
-func (m *mockContext) ReenterAfter(f *Future, cont func(res interface{}, err error)) {
+func (m *mockContext) ReenterAfter(f Future, cont func(res interface{}, err error)) {
 	m.Called(f, cont)
+}
+
+func (m *mockContext) Capture() *CapturedContext {
+	args := m.Called()
+	return args.Get(0).(*CapturedContext)
+}
+
+func (m *mockContext) Apply(captured *CapturedContext) {
+	m.Called(captured)
 }
 
 //
@@ -150,10 +159,10 @@ func (m *mockContext) RequestWithCustomSender(pid *PID, message interface{}, sen
 	p.SendUserMessage(pid, env)
 }
 
-func (m *mockContext) RequestFuture(_ *PID, _ interface{}, _ time.Duration) *Future {
+func (m *mockContext) RequestFuture(_ *PID, _ interface{}, _ time.Duration) Future {
 	args := m.Called()
 
-	return args.Get(0).(*Future)
+	return args.Get(0).(Future)
 }
 
 //

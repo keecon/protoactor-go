@@ -8,6 +8,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/asynkron/protoactor-go/actor"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/net/context"
 )
 
@@ -21,11 +23,11 @@ func (s *endpointReader) mustEmbedUnimplementedRemotingServer() {
 	panic("implement me")
 }
 
-func (s *endpointReader) ListProcesses(ctx context.Context, request *ListProcessesRequest) (*ListProcessesResponse, error) {
+func (s *endpointReader) ListProcesses(_ context.Context, _ *ListProcessesRequest) (*ListProcessesResponse, error) {
 	panic("implement me")
 }
 
-func (s *endpointReader) GetProcessDiagnostics(ctx context.Context, request *GetProcessDiagnosticsRequest) (*GetProcessDiagnosticsResponse, error) {
+func (s *endpointReader) GetProcessDiagnostics(_ context.Context, _ *GetProcessDiagnosticsRequest) (*GetProcessDiagnosticsResponse, error) {
 	panic("implement me")
 }
 
@@ -101,10 +103,10 @@ func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
 }
 
 func (s *endpointReader) OnConnectRequest(stream Remoting_ReceiveServer, c *ConnectRequest) (bool, error) {
-	switch tt := c.ConnectionType.(type) {
+	switch connType := c.ConnectionType.(type) {
 	case *ConnectRequest_ServerConnection:
 		{
-			sc := tt.ServerConnection
+			sc := connType.ServerConnection
 			s.onServerConnection(stream, sc)
 		}
 	case *ConnectRequest_ClientConnection:
@@ -128,14 +130,21 @@ func (s *endpointReader) onMessageBatch(m *MessageBatch) error {
 	for _, envelope := range m.Envelopes {
 		data := envelope.MessageData
 
-		sender = deserializeSender(sender, envelope.Sender, envelope.SenderRequestId, m.Senders)
-		target = deserializeTarget(target, envelope.Target, envelope.TargetRequestId, m.Targets)
+		sender = deserializeSender(envelope.Sender, envelope.SenderRequestId, m.Senders)
+		target = deserializeTarget(envelope.Target, envelope.TargetRequestId, m.Targets, s.remote.actorSystem.Address())
 		if target == nil {
 			s.remote.Logger().Error("EndpointReader received message with unknown target", slog.Int("target", int(envelope.Target)), slog.Int("targetRequestId", int(envelope.TargetRequestId)))
 			return errors.New("unknown target")
 		}
 
-		message, err := Deserialize(data, m.TypeNames[envelope.TypeId], envelope.SerializerId)
+		typeName := m.TypeNames[envelope.TypeId]
+		if s.remote.metricsEnabled {
+			_ctx := context.Background()
+			attrs := append(actor.SystemLabels(s.remote.actorSystem), attribute.String("messagetype", typeName))
+			s.remote.metrics.RemoteDeserializedMessageCount.Add(_ctx, 1, metric.WithAttributes(attrs...))
+		}
+
+		message, err := Deserialize(data, typeName, envelope.SerializerId)
 		if err != nil {
 			s.remote.Logger().Error("EndpointReader failed to deserialize", slog.Any("error", err))
 			return err
@@ -159,7 +168,13 @@ func (s *endpointReader) onMessageBatch(m *MessageBatch) error {
 			}
 			s.remote.edpManager.remoteTerminate(rt)
 		case actor.SystemMessage:
-			ref, _ := s.remote.actorSystem.ProcessRegistry.GetLocal(target.Id)
+			// attempt to get a local process reference
+			ref, ok := s.remote.actorSystem.ProcessRegistry.GetLocal(target.Id)
+			if !ok {
+				// drop the message if the target process does not exist
+				s.remote.Logger().Warn("EndpointReader failed to get local process", slog.String("pid", target.Id))
+				continue
+			}
 			ref.SendSystemMessage(target, msg)
 		default:
 			var header map[string]string
@@ -185,35 +200,28 @@ func (s *endpointReader) onMessageBatch(m *MessageBatch) error {
 	return nil
 }
 
-func deserializeSender(pid *actor.PID, index int32, requestId uint32, arr []*actor.PID) *actor.PID {
+func deserializeSender(index int32, requestID uint32, arr []*actor.PID) *actor.PID {
 	if index == 0 {
-		pid = nil
-	} else {
-		pid = arr[index-1]
+		return nil
+	}
+	pid := arr[index-1]
 
-		// if request id is used. make sure to clone the PID first, so we don't corrupt the lookup
-		if requestId > 0 {
-			pid, _ = proto.Clone(pid).(*actor.PID)
-			pid.RequestId = requestId
-		}
+	// if request id is used, clone the PID first so we don't corrupt the lookup
+	if requestID > 0 {
+		pid, _ = proto.Clone(pid).(*actor.PID)
+		pid.RequestId = requestID
 	}
 	return pid
 }
 
-func deserializeTarget(pid *actor.PID, index int32, requestId uint32, arr []*actor.PID) *actor.PID {
-	pid = arr[index]
-
-	// if request id is used. make sure to clone the PID first, so we don't corrupt the lookup
-	if requestId > 0 {
-		pid, _ = proto.Clone(pid).(*actor.PID)
-		pid.RequestId = requestId
-	}
-
+func deserializeTarget(index int32, requestID uint32, arr []string, address string) *actor.PID {
+	pid := actor.NewPID(address, arr[index])
+	pid.RequestId = requestID
 	return pid
 }
 
 func (s *endpointReader) onServerConnection(stream Remoting_ReceiveServer, sc *ServerConnection) {
-	if s.remote.BlockList().IsBlocked(sc.SystemId) {
+	if s.remote.BlockList().IsBlocked(sc.MemberId) {
 		s.remote.Logger().Debug("EndpointReader is blocked")
 
 		err := stream.Send(
@@ -230,7 +238,8 @@ func (s *endpointReader) onServerConnection(stream Remoting_ReceiveServer, sc *S
 		}
 
 		address := sc.Address
-		systemID := sc.SystemId
+		systemID := sc.MemberId
+		_ = sc.BlockList
 
 		// TODO
 		_ = address

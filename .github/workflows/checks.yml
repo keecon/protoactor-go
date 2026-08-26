@@ -1,8 +1,7 @@
 name: checks 
-on: [
-  pull_request,
-  workflow_dispatch,
-]
+on:
+  - pull_request
+  - workflow_dispatch
 env:
 
   TERM: xterm
@@ -14,27 +13,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go_version: ['1.21']
+        go_version: ['1.25.2']
     # services:
     #   redis:
     #     image: redis:5.0-alpine
     #     ports: 
     #       - 6379:6379
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go_version }}
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          cache: true
       - name: start services
         run: docker compose up -d
+      - name: build
+        run: go build ./...
+      - name: build examples
+        run: |
+          find ./examples -name go.mod -execdir sh -c 'go mod tidy && go build ./...' \;
       - name: run testcases
         run: make test2
       - name: benchmark

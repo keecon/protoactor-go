@@ -9,3 +9,7 @@ message HelloRequest {
 message HelloResponse {
 
 }
+
+message StringValue {
+  string value = 1;
+}

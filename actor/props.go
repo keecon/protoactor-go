@@ -1,14 +1,7 @@
 package actor
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"log/slog"
-
-	"github.com/asynkron/protoactor-go/metrics"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/metric"
 )
 
 type (
@@ -27,25 +20,6 @@ var (
 		ctx := newActorContext(actorSystem, props, parentContext.Self())
 		mb := props.produceMailbox()
 
-		// prepare the mailbox number counter
-		if ctx.actorSystem.Config.MetricsProvider != nil {
-			sysMetrics, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-			if ok && sysMetrics.enabled {
-				if instruments := sysMetrics.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-					sysMetrics.PrepareMailboxLengthGauge()
-					meter := otel.Meter(metrics.LibName)
-
-					if _, err := meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-						o.ObserveInt64(instruments.ActorMailboxLength, int64(mb.UserMessageCount()), metric.WithAttributes(sysMetrics.CommonLabels(ctx)...))
-						return nil
-					}); err != nil {
-						err = fmt.Errorf("failed to instrument Actor Mailbox, %w", err)
-						actorSystem.Logger().Error(err.Error(), slog.Any("error", err))
-					}
-				}
-			}
-		}
-
 		dp := props.getDispatcher()
 		proc := NewActorProcess(mb)
 		pid, absent := actorSystem.ProcessRegistry.Add(proc, id)
@@ -61,9 +35,6 @@ var (
 		mb.Start()
 
 		return pid, nil
-	}
-	defaultContextDecorator = func(ctx Context) Context {
-		return ctx
 	}
 )
 
@@ -124,14 +95,6 @@ func (props *Props) getSupervisor() SupervisorStrategy {
 	}
 
 	return props.supervisionStrategy
-}
-
-func (props *Props) getContextDecoratorChain() ContextDecoratorFunc {
-	if props.contextDecoratorChain == nil {
-		return defaultContextDecorator
-	}
-
-	return props.contextDecoratorChain
 }
 
 func (props *Props) produceMailbox() Mailbox {
