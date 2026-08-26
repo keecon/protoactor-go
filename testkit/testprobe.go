@@ -3,6 +3,7 @@ package testkit
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/asynkron/protoactor-go/actor"
@@ -18,6 +19,7 @@ type messageAndSender struct {
 // It stores every incoming message along with its sender.
 type TestProbe struct {
 	mailbox chan messageAndSender
+	mu      sync.RWMutex
 	ctx     actor.Context
 	sender  *actor.PID
 }
@@ -31,7 +33,9 @@ func NewTestProbe() *TestProbe {
 func (tp *TestProbe) Receive(ctx actor.Context) {
 	switch ctx.Message().(type) {
 	case *actor.Started:
+		tp.mu.Lock()
 		tp.ctx = ctx
+		tp.mu.Unlock()
 	default:
 		tp.mailbox <- messageAndSender{message: ctx.Message(), sender: ctx.Sender()}
 	}
@@ -39,6 +43,9 @@ func (tp *TestProbe) Receive(ctx actor.Context) {
 
 // Context returns the probe's context. Panics if called before Start.
 func (tp *TestProbe) Context() actor.Context {
+	tp.mu.RLock()
+	defer tp.mu.RUnlock()
+
 	if tp.ctx == nil {
 		panic("probe context is nil")
 	}
@@ -46,7 +53,12 @@ func (tp *TestProbe) Context() actor.Context {
 }
 
 // Sender returns the sender of the last retrieved message.
-func (tp *TestProbe) Sender() *actor.PID { return tp.sender }
+func (tp *TestProbe) Sender() *actor.PID {
+	tp.mu.RLock()
+	defer tp.mu.RUnlock()
+
+	return tp.sender
+}
 
 // ExpectNoMessage verifies that no message arrives within the allowed time.
 func (tp *TestProbe) ExpectNoMessage(timeAllowed time.Duration) error {
@@ -68,7 +80,9 @@ func (tp *TestProbe) GetNextMessage(timeAllowed time.Duration) (interface{}, err
 	}
 	select {
 	case m := <-tp.mailbox:
+		tp.mu.Lock()
 		tp.sender = m.sender
+		tp.mu.Unlock()
 		return m.message, nil
 	case <-time.After(timeAllowed):
 		return nil, fmt.Errorf("waited %v but failed to receive a message", timeAllowed)
@@ -85,8 +99,9 @@ func (tp *TestProbe) Request(target *actor.PID, message interface{}) {
 
 // Respond sends a response to the last sender if present.
 func (tp *TestProbe) Respond(message interface{}) {
-	if tp.sender != nil {
-		tp.Send(tp.sender, message)
+	sender := tp.Sender()
+	if sender != nil {
+		tp.Send(sender, message)
 	}
 }
 
@@ -132,7 +147,9 @@ func FishForMessage[T any](tp *TestProbe, when func(T) bool, timeAllowed time.Du
 		select {
 		case m := <-tp.mailbox:
 			if typed, ok := m.message.(T); ok && when(typed) {
+				tp.mu.Lock()
 				tp.sender = m.sender
+				tp.mu.Unlock()
 				return typed, nil
 			}
 		case <-time.After(remaining):
