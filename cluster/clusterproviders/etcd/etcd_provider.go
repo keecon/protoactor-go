@@ -23,7 +23,7 @@ type Provider struct {
 	baseKey       string
 	clusterName   string
 	deregistered  bool
-	shutdown      bool
+	shutdown      atomic.Bool
 	self          *Node
 	members       map[string]*Node // all, contains self.
 	clusterError  error
@@ -119,11 +119,10 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	// initialize members
 	p.updateNodesWithSelf(nodes)
 	p.publishClusterTopologyEvent()
-	p.startWatching()
-
 	ctx := context.TODO()
 	p.startKeepAlive(ctx)
 	p.updateLeadership()
+	p.startWatching()
 	return nil
 }
 
@@ -145,7 +144,12 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 
 // Shutdown deregisters the node and stops background tasks.
 func (p *Provider) Shutdown(_ bool) error {
-	p.shutdown = true
+	p.shutdown.Store(true)
+	if p.cancelWatch != nil {
+		p.cancelWatch()
+		<-p.cancelWatchCh
+		p.cancelWatch = nil
+	}
 	if !p.deregistered {
 		p.updateLeadership()
 		err := p.deregisterService()
@@ -154,10 +158,6 @@ func (p *Provider) Shutdown(_ bool) error {
 			return err
 		}
 		p.deregistered = true
-	}
-	if p.cancelWatch != nil {
-		p.cancelWatch()
-		p.cancelWatch = nil
 	}
 	return nil
 }
@@ -197,7 +197,7 @@ func (p *Provider) keepAliveForever(_ context.Context) error {
 			return fmt.Errorf("keep alive failed. resp=%s", resp.String())
 		}
 		// plog.Infof("keep alive %s ttl=%d", p.getID(), resp.TTL)
-		if p.shutdown {
+		if p.shutdown.Load() {
 			return nil
 		}
 	}
@@ -206,7 +206,7 @@ func (p *Provider) keepAliveForever(_ context.Context) error {
 
 func (p *Provider) startKeepAlive(ctx context.Context) {
 	go func() {
-		for !p.shutdown {
+		for !p.shutdown.Load() {
 			if err := ctx.Err(); err != nil {
 				p.cluster.Logger().Info("Keepalive was stopped.", slog.Any("error", err))
 				return
@@ -308,7 +308,7 @@ func (p *Provider) handleWatchResponse(resp clientv3.WatchResponse) map[string]*
 				slog.String("type", ev.Type.String()))
 		}
 	}
-	p.revision = uint64(resp.Header.GetRevision())
+	atomic.StoreUint64(&p.revision, uint64(resp.Header.GetRevision()))
 	return changes
 }
 
@@ -350,9 +350,8 @@ func (p *Provider) startWatching() {
 			if p.cancelWatchCh != nil {
 				close(p.cancelWatchCh)
 			}
-			p.cancelWatch = nil
 		}()
-		for !p.shutdown {
+		for !p.shutdown.Load() {
 			if err := p.keepWatching(ctx); err != nil {
 				p.cluster.Logger().Error("Failed to keepWatching.", slog.Any("error", err))
 				p.clusterError = err
@@ -388,7 +387,7 @@ func (p *Provider) fetchNodes() ([]*Node, error) {
 			n.SetMeta(metaKeyID, n.ID)
 		}
 	}
-	p.revision = uint64(resp.Header.GetRevision())
+	atomic.StoreUint64(&p.revision, uint64(resp.Header.GetRevision()))
 	// plog.Debug("fetch nodes",
 	// 	log.Uint64("raft term", resp.Header.GetRaftTerm()),
 	// 	log.Int64("revision", resp.Header.GetRevision()))
@@ -539,7 +538,7 @@ func (p *Provider) isLeaderOf(ns []*Node) bool {
 	if minSeq <= 0 { // 没有在线actor
 		return true
 	}
-	if p.self != nil && p.self.GetSeq() <= minSeq {
+	if p.self != nil && int(p.getLeaseID()) <= minSeq {
 		return true
 	}
 	return false
@@ -547,7 +546,7 @@ func (p *Provider) isLeaderOf(ns []*Node) bool {
 
 func (p *Provider) startRoleChangedNotifyLoop() {
 	go func() {
-		for !p.shutdown {
+		for !p.shutdown.Load() {
 			role := <-p.roleChangedChan
 			if lis := p.roleChangedListener; lis != nil {
 				safeRun(p.cluster.Logger(), func() { lis.OnRoleChanged(role) })
