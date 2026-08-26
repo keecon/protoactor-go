@@ -71,7 +71,7 @@ func (suite *ZookeeperTestSuite) TestMultiNodes() {
 	defer c2.Shutdown()
 	c1.Cluster.Get(`a1`, `hello`)
 	c2.Cluster.Get(`a2`, `hello`)
-	for actorCount != 2 {
+	for atomic.LoadInt32(&actorCount) != 2 {
 		time.Sleep(time.Microsecond * 5)
 	}
 	suite.Assert().Equal(2, c1.Cluster.MemberList.Members().Len(), "Expected 2 members in the cluster")

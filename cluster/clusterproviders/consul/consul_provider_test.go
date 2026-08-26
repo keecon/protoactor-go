@@ -106,7 +106,7 @@ func TestRegisterMultipleMembers(t *testing.T) {
 		addr := fmt.Sprintf("%s:%d", member.host, member.port)
 		_p, _ := New()
 		c := newClusterForTest(member.cluster, addr, _p)
-		err := p.StartMember(c)
+		err := _p.StartMember(c)
 		a.NoError(err)
 		t.Cleanup(func() {
 			_ = _p.Shutdown(true)
