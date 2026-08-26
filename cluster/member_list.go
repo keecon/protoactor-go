@@ -94,10 +94,16 @@ func (ml *MemberList) GetActivatorMember(kind string, requestSourceAddress strin
 }
 
 func (ml *MemberList) Length() int {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members.Len()
 }
 
 func (ml *MemberList) Members() *MemberSet {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members
 }
 
@@ -201,7 +207,11 @@ func (ml *MemberList) TerminateMember(m *Member) {
 }
 
 func (ml *MemberList) BroadcastEvent(message interface{}, includeSelf bool) {
-	for _, m := range ml.members.members {
+	ml.mutex.RLock()
+	members := ml.members
+	ml.mutex.RUnlock()
+
+	for _, m := range members.members {
 		if !includeSelf && m.Id == ml.cluster.ActorSystem.ID {
 			continue
 		}
@@ -212,6 +222,9 @@ func (ml *MemberList) BroadcastEvent(message interface{}, includeSelf bool) {
 }
 
 func (ml *MemberList) ContainsMemberID(memberID string) bool {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members.ContainsID(memberID)
 }
 
