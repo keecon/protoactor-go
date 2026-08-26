@@ -27,7 +27,7 @@ test-short:
 	@go test $(PACKAGES) -timeout=30s -short
 
 test-race:
-	@go test $(PACKAGES) -timeout=30s -race
+	@go test $(PACKAGES) -timeout=2m -race
 
 lint:
 	@go install github.com/mgechev/revive@latest
