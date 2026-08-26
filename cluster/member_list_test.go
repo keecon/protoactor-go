@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/asynkron/protoactor-go/remote"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,6 +32,81 @@ func TestMemberListTopologySubscriberCanReadMembers(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("topology subscriber deadlocked while reading the member list")
 	}
+}
+
+func TestMemberListPublishesConcurrentUpdatesInOrder(t *testing.T) {
+	c := newClusterForTest("test-topology-order", nil)
+	memberList := NewMemberList(c)
+	initial := newMembersForTest(1)
+	memberList.UpdateClusterTopology(initial)
+
+	terminationStarted := make(chan struct{})
+	releaseTermination := make(chan struct{})
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(releaseTermination)
+		}
+	})
+	terminationSubscription := c.ActorSystem.EventStream.Subscribe(func(event interface{}) {
+		if _, ok := event.(*remote.EndpointTerminatedEvent); !ok {
+			return
+		}
+		close(terminationStarted)
+		<-releaseTermination
+	})
+	t.Cleanup(func() { c.ActorSystem.EventStream.Unsubscribe(terminationSubscription) })
+
+	topologies := make(chan *ClusterTopology, 2)
+	topologySubscription := c.ActorSystem.EventStream.Subscribe(func(event interface{}) {
+		if topology, ok := event.(*ClusterTopology); ok {
+			topologies <- topology
+		}
+	})
+	t.Cleanup(func() { c.ActorSystem.EventStream.Unsubscribe(topologySubscription) })
+
+	firstDone := make(chan struct{})
+	go func() {
+		memberList.UpdateClusterTopology(nil)
+		close(firstDone)
+	}()
+	select {
+	case <-terminationStarted:
+	case <-time.After(time.Second):
+		t.Fatal("member termination did not start")
+	}
+
+	newer := newMembersForTest(1)
+	newer[0].Id = "newer-member"
+	secondDone := make(chan struct{})
+	go func() {
+		memberList.UpdateClusterTopology(newer)
+		close(secondDone)
+	}()
+
+	select {
+	case topology := <-topologies:
+		t.Fatalf("newer topology was published before the older update completed: %v", topology.Members)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(releaseTermination)
+	released = true
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first topology update did not complete")
+	}
+	select {
+	case <-secondDone:
+	case <-time.After(time.Second):
+		t.Fatal("second topology update did not complete")
+	}
+
+	first := <-topologies
+	second := <-topologies
+	assert.Empty(t, first.Members)
+	assert.Equal(t, newer, Members(second.Members))
 }
 
 //func TestPublishRaceCondition(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 // the default ClusterProvider is consul.ConsulProvider which uses the Consul HTTP API to scan for changes
 type MemberList struct {
 	cluster              *Cluster
+	updateMutex          sync.Mutex
 	mutex                sync.RWMutex
 	members              *MemberSet
 	memberStrategyByKind map[string]MemberStrategy
@@ -108,6 +109,9 @@ func (ml *MemberList) Members() *MemberSet {
 }
 
 func (ml *MemberList) UpdateClusterTopology(members Members) {
+	ml.updateMutex.Lock()
+	defer ml.updateMutex.Unlock()
+
 	ml.mutex.Lock()
 
 	// TLDR:
