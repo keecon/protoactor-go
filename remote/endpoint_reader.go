@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 
 	"google.golang.org/protobuf/proto"
 
@@ -14,8 +16,30 @@ import (
 )
 
 type endpointReader struct {
-	suspended bool
+	suspended atomic.Bool
 	remote    *Remote
+}
+
+type endpointReaderConnection struct {
+	disconnect     chan struct{}
+	done           chan struct{}
+	disconnectOnce sync.Once
+	doneOnce       sync.Once
+}
+
+func newEndpointReaderConnection() *endpointReaderConnection {
+	return &endpointReaderConnection{
+		disconnect: make(chan struct{}),
+		done:       make(chan struct{}),
+	}
+}
+
+func (c *endpointReaderConnection) requestDisconnect() {
+	c.disconnectOnce.Do(func() { close(c.disconnect) })
+}
+
+func (c *endpointReaderConnection) finish() {
+	c.doneOnce.Do(func() { close(c.done) })
 }
 
 func (s *endpointReader) mustEmbedUnimplementedRemotingServer() {
@@ -38,17 +62,17 @@ func newEndpointReader(r *Remote) *endpointReader {
 }
 
 func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
-	disconnectChan := make(chan bool, 1)
-	s.remote.edpManager.endpointReaderConnections.Store(stream, disconnectChan)
+	connection := newEndpointReaderConnection()
+	s.remote.edpManager.endpointReaderConnections.Store(stream, connection)
 	defer func() {
 		s.remote.Logger().Info("EndpointReader is closing")
-		close(disconnectChan)
+		s.remote.edpManager.endpointReaderConnections.Delete(stream)
+		connection.finish()
 	}()
 
 	go func() {
-		// endpointManager sends true
-		// endpointReader sends false
-		if <-disconnectChan {
+		select {
+		case <-connection.disconnect:
 			s.remote.Logger().Debug("EndpointReader is telling to remote that it's leaving")
 			err := stream.Send(&RemoteMessage{
 				MessageType: &RemoteMessage_DisconnectRequest{
@@ -58,9 +82,8 @@ func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
 			if err != nil {
 				s.remote.Logger().Error("EndpointReader failed to send disconnection message", slog.Any("error", err))
 			}
-		} else {
-			s.remote.edpManager.endpointReaderConnections.Delete(stream)
-			s.remote.Logger().Debug("EndpointReader removed active endpoint from endpointManager")
+		case <-connection.done:
+		case <-stream.Context().Done():
 		}
 	}()
 
@@ -69,12 +92,11 @@ func (s *endpointReader) Receive(stream Remoting_ReceiveServer) error {
 		switch {
 		case errors.Is(err, io.EOF):
 			s.remote.Logger().Info("EndpointReader stream closed")
-			disconnectChan <- false
 			return nil
 		case err != nil:
 			s.remote.Logger().Info("EndpointReader failed to read", slog.Any("error", err))
 			return err
-		case s.suspended:
+		case s.suspended.Load():
 			continue
 		}
 
@@ -261,7 +283,7 @@ func (s *endpointReader) onServerConnection(stream Remoting_ReceiveServer, sc *S
 }
 
 func (s *endpointReader) suspend(toSuspend bool) {
-	s.suspended = toSuspend
+	s.suspended.Store(toSuspend)
 	if toSuspend {
 		s.remote.Logger().Debug("Suspended EndpointReader")
 	}

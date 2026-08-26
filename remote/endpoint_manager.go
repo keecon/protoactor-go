@@ -117,10 +117,9 @@ func (em *endpointManager) stop() {
 	}
 	em.endpointSub = nil
 	if em.endpointReaderConnections != nil {
-		em.endpointReaderConnections.Range(func(key interface{}, value interface{}) bool {
-			channel := value.(chan bool)
-			channel <- true
-			em.endpointReaderConnections.Delete(key)
+		em.endpointReaderConnections.Range(func(_ interface{}, value interface{}) bool {
+			connection := value.(*endpointReaderConnection)
+			connection.requestDisconnect()
 			return true
 		})
 	}
