@@ -33,6 +33,12 @@ func newClusterForTest(name string, addr string, cp cluster.ClusterProvider) *cl
 	return c
 }
 
+type roleChangedFunc func(RoleType)
+
+func (f roleChangedFunc) OnRoleChanged(role RoleType) {
+	f(role)
+}
+
 func TestStartMember(t *testing.T) {
 	if testing.Short() {
 		return
@@ -110,6 +116,138 @@ func TestConcurrentShutdown(t *testing.T) {
 
 	for err := range errors {
 		assert.NoError(t, err)
+	}
+}
+
+func TestRoleChangedListenerCanShutdown(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	var provider *Provider
+	shutdownResult := make(chan error, 1)
+	listener := roleChangedFunc(func(role RoleType) {
+		if role == Leader {
+			shutdownResult <- provider.Shutdown(true)
+		}
+	})
+	var err error
+	provider, err = New()
+	assert.NoError(t, err)
+	provider.roleChangedListener = listener
+	t.Cleanup(func() { _ = provider.Shutdown(true) })
+	c := newClusterForTest(t.Name(), "127.0.0.1:8011", provider)
+	assert.NoError(t, provider.StartMember(c))
+
+	select {
+	case err := <-shutdownResult:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("role listener deadlocked while shutting down the provider")
+	}
+}
+
+func TestTopologyListenerCanShutdownDuringStart(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	provider, err := New()
+	assert.NoError(t, err)
+	c := newClusterForTest(t.Name(), "127.0.0.1:8013", provider)
+	shutdownResult := make(chan error, 1)
+	var shutdownOnce sync.Once
+	subscription := c.ActorSystem.EventStream.Subscribe(func(event interface{}) {
+		if _, ok := event.(*cluster.ClusterTopology); !ok {
+			return
+		}
+		shutdownOnce.Do(func() {
+			shutdownResult <- provider.Shutdown(true)
+		})
+	})
+	t.Cleanup(func() {
+		c.ActorSystem.EventStream.Unsubscribe(subscription)
+		_ = provider.Shutdown(true)
+	})
+	startResult := make(chan error, 1)
+	go func() { startResult <- provider.StartMember(c) }()
+
+	select {
+	case err := <-shutdownResult:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("topology listener deadlocked while shutting down the provider")
+	}
+	select {
+	case err := <-startResult:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("StartMember did not finish after topology listener shutdown")
+	}
+}
+
+func TestWatcherTopologyListenerCanShutdown(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	provider, err := New()
+	assert.NoError(t, err)
+	first := newClusterForTest(t.Name(), "127.0.0.1:8014", provider)
+	shutdownResult := make(chan error, 1)
+	var shutdownOnce sync.Once
+	subscription := first.ActorSystem.EventStream.Subscribe(func(event interface{}) {
+		topology, ok := event.(*cluster.ClusterTopology)
+		if !ok || len(topology.Members) < 2 {
+			return
+		}
+		shutdownOnce.Do(func() {
+			shutdownResult <- provider.Shutdown(true)
+		})
+	})
+	t.Cleanup(func() {
+		first.ActorSystem.EventStream.Unsubscribe(subscription)
+		_ = provider.Shutdown(true)
+	})
+	assert.NoError(t, provider.StartMember(first))
+
+	secondProvider, err := New()
+	assert.NoError(t, err)
+	t.Cleanup(func() { _ = secondProvider.Shutdown(true) })
+	second := newClusterForTest(t.Name(), "127.0.0.1:8015", secondProvider)
+	assert.NoError(t, secondProvider.StartMember(second))
+
+	select {
+	case err := <-shutdownResult:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher topology listener deadlocked while shutting down the provider")
+	}
+}
+
+func TestStartMemberConcurrentWithShutdown(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	provider, err := New()
+	assert.NoError(t, err)
+	c := newClusterForTest(t.Name(), "127.0.0.1:8012", provider)
+	startResult := make(chan error, 1)
+	shutdownResult := make(chan error, 1)
+	go func() { startResult <- provider.StartMember(c) }()
+	go func() { shutdownResult <- provider.Shutdown(true) }()
+
+	select {
+	case <-startResult:
+	case <-time.After(5 * time.Second):
+		t.Fatal("StartMember did not finish")
+	}
+	select {
+	case err := <-shutdownResult:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not finish")
 	}
 }
 
