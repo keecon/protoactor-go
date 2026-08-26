@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,6 +83,33 @@ func TestStartMember(t *testing.T) {
 		}
 		a.Equal(expected, msg)
 
+	}
+}
+
+func TestConcurrentShutdown(t *testing.T) {
+	if testing.Short() {
+		return
+	}
+
+	p, err := New()
+	assert.NoError(t, err)
+	c := newClusterForTest(t.Name(), "127.0.0.1:8010", p)
+	assert.NoError(t, p.StartMember(c))
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errors <- p.Shutdown(true)
+		}()
+	}
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		assert.NoError(t, err)
 	}
 }
 
