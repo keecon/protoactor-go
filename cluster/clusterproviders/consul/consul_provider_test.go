@@ -113,20 +113,31 @@ func TestRegisterMultipleMembers(t *testing.T) {
 		})
 	}
 
-	entries, _, err := p.client.Health().Service("mycluster2", "", true, nil)
-	a.NoError(err)
-
-	found := false
-	for _, entry := range entries {
-		found = false
-		for _, member := range members {
-			if entry.Service.Port == member.port {
-				found = true
+	expectedPorts := make(map[int]struct{}, len(members))
+	for _, member := range members {
+		expectedPorts[member.port] = struct{}{}
+	}
+	var queryErr error
+	actualPorts := make(map[int]struct{})
+	a.Eventually(func() bool {
+		entries, _, err := p.client.Health().Service("mycluster2", "", true, nil)
+		queryErr = err
+		actualPorts = make(map[int]struct{}, len(entries))
+		for _, entry := range entries {
+			actualPorts[entry.Service.Port] = struct{}{}
+		}
+		if len(actualPorts) != len(expectedPorts) {
+			return false
+		}
+		for port := range expectedPorts {
+			if _, ok := actualPorts[port]; !ok {
+				return false
 			}
 		}
-		a.Truef(found, "Member port not found - ExtensionID:%v Address: %v:%v",
-			entry.Service.ID, entry.Service.Address, entry.Service.Port)
-	}
+		return true
+	}, 5*time.Second, 10*time.Millisecond)
+	a.NoError(queryErr)
+	a.Equal(expectedPorts, actualPorts)
 }
 
 func TestUpdateTTL_DoesNotReregisterAfterShutdown(t *testing.T) {
