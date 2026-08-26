@@ -71,6 +71,9 @@ func TestActorMetrics(t *testing.T) {
 // TestActorLifecycleMetrics verifies metrics related to actor failures, restarts
 // and stops are emitted.
 func TestActorLifecycleMetrics(t *testing.T) {
+	type failMessage struct{}
+	type stopMessage struct{}
+
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	otel.SetMeterProvider(provider)
@@ -87,16 +90,17 @@ func TestActorLifecycleMetrics(t *testing.T) {
 	wg.Add(1)
 	pid := system.Root.Spawn(PropsFromFunc(func(ctx Context) {
 		switch ctx.Message().(type) {
-		case string:
+		case failMessage:
 			// trigger a failure which should restart the actor
 			panic("boom")
-		case *Restarting:
+		case stopMessage:
 			ctx.Stop(ctx.Self())
 			wg.Done()
 		}
 	}))
 
-	system.Root.Send(pid, "fail")
+	system.Root.Send(pid, failMessage{})
+	system.Root.Send(pid, stopMessage{})
 	wg.Wait()
 
 	var rm metricdata.ResourceMetrics
