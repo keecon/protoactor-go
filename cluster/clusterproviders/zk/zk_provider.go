@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,9 @@ type Provider struct {
 	clusterKey          string
 	deregistered        bool
 	shutdown            atomic.Bool
+	lifecycleMu         sync.Mutex
+	done                chan struct{}
+	background          sync.WaitGroup
 	self                *Node
 	members             map[string]*Node // all, contains self.
 	clusterError        error
@@ -48,7 +52,7 @@ type Provider struct {
 	revision            uint64
 	fullpath            string
 	roleChangedListener RoleChangedListener
-	role                RoleType
+	role                atomic.Int32
 	roleChangedChan     chan RoleType
 }
 
@@ -67,11 +71,11 @@ func New(endpoints []string, opts ...Option) (*Provider, error) {
 		deregistered:        false,
 		self:                &Node{},
 		members:             map[string]*Node{},
+		done:                make(chan struct{}),
 		revision:            0,
 		fullpath:            "",
 		roleChangedListener: zkCfg.RoleChanged,
 		roleChangedChan:     make(chan RoleType, 1),
-		role:                Follower,
 	}
 	conn, err := connectZk(endpoints, zkCfg.SessionTimeout, WithEventCallback(p.onEvent))
 	if err != nil {
@@ -89,7 +93,7 @@ func New(endpoints []string, opts ...Option) (*Provider, error) {
 
 // IsLeader reports whether this node currently has leadership.
 func (p *Provider) IsLeader() bool {
-	return p.role == Leader
+	return RoleType(p.role.Load()) == Leader
 }
 
 func (p *Provider) init(c *cluster.Cluster) error {
@@ -121,8 +125,6 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 		return err
 	}
 
-	p.startRoleChangedNotifyLoop()
-
 	// register self
 	if err := p.registerService(); err != nil {
 		p.cluster.Logger().Error("register service fail " + err.Error())
@@ -139,6 +141,7 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	// initialize members
 	p.updateNodesWithSelf(nodes, version)
 	p.publishClusterTopologyEvent()
+	p.startRoleChangedNotifyLoop()
 	p.updateLeadership(nodes)
 	p.startWatching(true)
 
@@ -164,7 +167,13 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 
 // Shutdown deregisters the node and stops background processing.
 func (p *Provider) Shutdown(_ bool) error {
-	p.shutdown.Store(true)
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if !p.shutdown.Swap(true) {
+		close(p.done)
+		p.background.Wait()
+	}
+
 	if !p.deregistered {
 		p.updateLeadership(nil)
 		if err := p.deregisterService(); err != nil {
@@ -273,7 +282,16 @@ func (p *Provider) isChildrenChanged(_ context.Context, stat *zk.Stat) bool {
 }
 
 func (p *Provider) _keepWatching(registerSelf bool, stream <-chan zk.Event) error {
-	event := <-stream
+	var event zk.Event
+	select {
+	case <-p.done:
+		return nil
+	case received, ok := <-stream:
+		if !ok {
+			return nil
+		}
+		event = received
+	}
 	if err := event.Err; err != nil {
 		p.cluster.Logger().Error("Failure watching service.", slog.Any("error", err))
 		if registerSelf && p.clusterNotContainsSelfPath() {
@@ -327,11 +345,17 @@ func (p *Provider) containSelf(ns []*Node) bool {
 }
 
 func (p *Provider) startRoleChangedNotifyLoop() {
+	p.background.Add(1)
 	go func() {
-		for !p.shutdown.Load() {
-			role := <-p.roleChangedChan
-			if lis := p.roleChangedListener; lis != nil {
-				safeRun(p.cluster.Logger(), func() { lis.OnRoleChanged(role) })
+		defer p.background.Done()
+		for {
+			select {
+			case role := <-p.roleChangedChan:
+				if lis := p.roleChangedListener; lis != nil {
+					safeRun(p.cluster.Logger(), func() { lis.OnRoleChanged(role) })
+				}
+			case <-p.done:
+				return
 			}
 		}
 	}()
@@ -342,10 +366,17 @@ func (p *Provider) updateLeadership(ns []*Node) {
 	if p.isLeaderOf(ns) {
 		role = Leader
 	}
-	if role != p.role {
-		p.cluster.Logger().Info("Role changed.", slog.String("from", p.role.String()), slog.String("to", role.String()))
-		p.role = role
-		p.roleChangedChan <- role
+	previous := RoleType(p.role.Swap(int32(role)))
+	if role != previous {
+		p.cluster.Logger().Info("Role changed.", slog.String("from", previous.String()), slog.String("to", role.String()))
+		p.notifyRoleChanged(role)
+	}
+}
+
+func (p *Provider) notifyRoleChanged(role RoleType) {
+	select {
+	case p.roleChangedChan <- role:
+	case <-p.done:
 	}
 }
 
@@ -355,9 +386,8 @@ func (p *Provider) onEvent(evt zk.Event) {
 	}
 	switch evt.State {
 	case zk.StateConnecting, zk.StateDisconnected, zk.StateExpired:
-		if p.role == Leader {
-			p.role = Follower
-			p.roleChangedChan <- Follower
+		if RoleType(p.role.Swap(int32(Follower))) == Leader {
+			p.notifyRoleChanged(Follower)
 		}
 	case zk.StateConnected, zk.StateHasSession:
 	}
@@ -383,7 +413,9 @@ func (p *Provider) isLeaderOf(ns []*Node) bool {
 
 func (p *Provider) startWatching(registerSelf bool) {
 	ctx := context.TODO()
+	p.background.Add(1)
 	go func() {
+		defer p.background.Done()
 		for !p.shutdown.Load() {
 			if err := p.keepWatching(ctx, registerSelf); err != nil {
 				p.cluster.Logger().Error("Failed to keepWatching.", slog.Any("error", err))

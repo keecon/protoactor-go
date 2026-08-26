@@ -1,6 +1,7 @@
 package zk
 
 import (
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +29,45 @@ func TestZookeeperTestSuite(t *testing.T) {
 		t.Skip("skipping Zookeeper integration test in short mode")
 	}
 	suite.Run(t, new(ZookeeperTestSuite))
+}
+
+func TestProviderConcurrentShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping ZooKeeper integration test in short mode")
+	}
+
+	provider, err := New([]string{`localhost:8000`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteConfig := remote.Configure("127.0.0.1", 8020)
+	config := cluster.Configure(t.Name(), provider, nil, remoteConfig)
+	system := actor.NewActorSystem()
+	c := cluster.New(system, config)
+	c.ActorSystem.ProcessRegistry.Address = "127.0.0.1:8020"
+	c.MemberList = cluster.NewMemberList(c)
+	c.Remote = remote.NewRemote(c.ActorSystem, c.Config.RemoteConfig)
+	if err := provider.StartMember(c); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errors <- provider.Shutdown(true)
+		}()
+	}
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		if err != nil {
+			t.Error(err)
+		}
+	}
 }
 
 type ClusterAndSystem struct {
@@ -71,9 +111,9 @@ func (suite *ZookeeperTestSuite) TestMultiNodes() {
 	defer c2.Shutdown()
 	c1.Cluster.Get(`a1`, `hello`)
 	c2.Cluster.Get(`a2`, `hello`)
-	for atomic.LoadInt32(&actorCount) != 2 {
-		time.Sleep(time.Microsecond * 5)
-	}
+	suite.Require().Eventually(func() bool {
+		return atomic.LoadInt32(&actorCount) == 2
+	}, 10*time.Second, 5*time.Millisecond)
 	suite.Assert().Equal(2, c1.Cluster.MemberList.Members().Len(), "Expected 2 members in the cluster")
 	suite.Assert().Equal(2, c2.Cluster.MemberList.Members().Len(), "Expected 2 members in the cluster")
 }
