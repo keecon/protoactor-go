@@ -2,6 +2,7 @@ package router
 
 import (
 	"log"
+	"sync"
 
 	"github.com/asynkron/protoactor-go/actor"
 	"github.com/serialx/hashring"
@@ -26,9 +27,13 @@ type hashmapContainer struct {
 type consistentHashRouterState struct {
 	hmc    *hashmapContainer
 	sender actor.SenderContext
+	mu     sync.RWMutex
 }
 
 func (state *consistentHashRouterState) SetSender(sender actor.SenderContext) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	state.sender = sender
 }
 
@@ -44,12 +49,17 @@ func (state *consistentHashRouterState) SetRoutees(routees *actor.PIDSet) {
 	})
 	// initialize hashring for mapping message keys to node names
 	hmc.hashring = hashring.New(nodes)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	state.hmc = &hmc
 }
 
 func (state *consistentHashRouterState) GetRoutees() *actor.PIDSet {
 	var routees actor.PIDSet
+	state.mu.RLock()
 	hmc := state.hmc
+	state.mu.RUnlock()
 	for _, v := range hmc.routeeMap {
 		routees.Add(v)
 	}
@@ -61,7 +71,10 @@ func (state *consistentHashRouterState) RouteMessage(message interface{}) {
 	switch msg := uwpMsg.(type) {
 	case Hasher:
 		key := msg.Hash()
+		state.mu.RLock()
 		hmc := state.hmc
+		sender := state.sender
+		state.mu.RUnlock()
 
 		node, ok := hmc.hashring.GetNode(key)
 		if !ok {
@@ -69,7 +82,7 @@ func (state *consistentHashRouterState) RouteMessage(message interface{}) {
 			return
 		}
 		if routee, ok := hmc.routeeMap[node]; ok {
-			state.sender.Send(routee, message)
+			sender.Send(routee, message)
 		} else {
 			log.Println("[ROUTING] Consistent router failed to resolve node", node)
 		}

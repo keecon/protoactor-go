@@ -1,6 +1,8 @@
 package router
 
 import (
+	"sync"
+
 	"github.com/asynkron/protoactor-go/actor"
 )
 
@@ -15,23 +17,38 @@ type broadcastPoolRouter struct {
 type broadcastRouterState struct {
 	routees *actor.PIDSet
 	sender  actor.SenderContext
+	mu      sync.RWMutex
 }
 
 func (state *broadcastRouterState) SetSender(sender actor.SenderContext) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	state.sender = sender
 }
 
 func (state *broadcastRouterState) SetRoutees(routees *actor.PIDSet) {
-	state.routees = routees
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	state.routees = routees.Clone()
 }
 
 func (state *broadcastRouterState) GetRoutees() *actor.PIDSet {
-	return state.routees
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	return state.routees.Clone()
 }
 
 func (state *broadcastRouterState) RouteMessage(message interface{}) {
-	state.routees.ForEach(func(_ int, pid *actor.PID) {
-		state.sender.Send(pid, message)
+	state.mu.RLock()
+	routees := state.routees
+	sender := state.sender
+	state.mu.RUnlock()
+
+	routees.ForEach(func(_ int, pid *actor.PID) {
+		sender.Send(pid, message)
 	})
 }
 
