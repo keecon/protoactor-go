@@ -2,31 +2,39 @@ package remote
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"time"
 
-	"github.com/keecon/protoactor-go/extensions"
+	"github.com/asynkron/protoactor-go/extensions"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
+	remotemetrics "github.com/asynkron/protoactor-go/remote/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/grpclog"
 )
 
-var extensionId = extensions.NextExtensionID()
+var (
+	extensionID    = extensions.NextExtensionID()
+	grpcLoggerOnce sync.Once
+)
 
+// Remote enables communication between actors across network boundaries.
 type Remote struct {
-	actorSystem  *actor.ActorSystem
-	s            *grpc.Server
-	edpReader    *endpointReader
-	edpManager   *endpointManager
-	config       *Config
-	kinds        map[string]*actor.Props
-	activatorPid *actor.PID
-	blocklist    *BlockList
+	actorSystem    *actor.ActorSystem
+	s              *grpc.Server
+	edpReader      *endpointReader
+	edpManager     *endpointManager
+	config         *Config
+	kinds          map[string]*actor.Props
+	blocklist      *BlockList
+	metrics        *remotemetrics.RemoteMetrics
+	metricsEnabled bool
 }
 
+// NewRemote creates a new Remote extension for the given actor system.
 func NewRemote(actorSystem *actor.ActorSystem, config *Config) *Remote {
 	r := &Remote{
 		actorSystem: actorSystem,
@@ -38,27 +46,38 @@ func NewRemote(actorSystem *actor.ActorSystem, config *Config) *Remote {
 		r.kinds[k] = v
 	}
 
+	if actorSystem.Config.MetricsEnabled {
+		r.metrics = remotemetrics.NewRemoteMetrics(actorSystem.Logger())
+		r.metricsEnabled = true
+	}
+
 	actorSystem.Extensions.Register(r)
 
 	return r
 }
 
+// GetRemote retrieves the Remote extension from the actor system.
+//
 //goland:noinspection GoUnusedExportedFunction
 func GetRemote(actorSystem *actor.ActorSystem) *Remote {
-	r := actorSystem.Extensions.Get(extensionId)
+	r := actorSystem.Extensions.Get(extensionID)
 
 	return r.(*Remote)
 }
 
+// ExtensionID returns the unique ID of the Remote extension.
 func (r *Remote) ExtensionID() extensions.ExtensionID {
-	return extensionId
+	return extensionID
 }
 
+// BlockList returns the list of blocked members.
 func (r *Remote) BlockList() *BlockList { return r.blocklist }
 
-// Start the remote server
+// Start the remote server.
 func (r *Remote) Start() {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
+	grpcLoggerOnce.Do(func() {
+		grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
+	})
 	lis, err := net.Listen("tcp", r.config.Address())
 	if err != nil {
 		panic(fmt.Errorf("failed to listen: %v", err))
@@ -82,9 +101,15 @@ func (r *Remote) Start() {
 	r.edpReader = newEndpointReader(r)
 	RegisterRemotingServer(r.s, r.edpReader)
 	r.Logger().Info("Starting Proto.Actor server", slog.String("address", address))
-	go r.s.Serve(lis)
+	go func() {
+		if err := r.s.Serve(lis); err != nil {
+			r.Logger().Error("gRPC server stopped", slog.Any("error", err))
+		}
+	}()
 }
 
+// Shutdown stops the remote server. If graceful is true it waits for running
+// requests to finish.
 func (r *Remote) Shutdown(graceful bool) {
 	if graceful {
 		// TODO: need more graceful
@@ -113,6 +138,7 @@ func (r *Remote) Shutdown(graceful bool) {
 	}
 }
 
+// SendMessage delivers the given message to the target PID using remoting.
 func (r *Remote) SendMessage(pid *actor.PID, header actor.ReadonlyMessageHeader, message interface{}, sender *actor.PID, serializerID int32) {
 	rd := &remoteDeliver{
 		header:       header,
@@ -124,6 +150,7 @@ func (r *Remote) SendMessage(pid *actor.PID, header actor.ReadonlyMessageHeader,
 	r.edpManager.remoteDeliver(rd)
 }
 
+// Logger returns the logger used by the Remote extension.
 func (r *Remote) Logger() *slog.Logger {
 	return r.actorSystem.Logger()
 }

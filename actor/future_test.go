@@ -27,11 +27,11 @@ func TestFuture_PipeTo_Message(t *testing.T) {
 	f.PipeTo(a2)
 	f.PipeTo(a3)
 
-	ref, _ := system.ProcessRegistry.Get(f.pid)
+	ref, _ := system.ProcessRegistry.Get(f.(*future).pid)
 	assert.IsType(t, &futureProcess{}, ref)
 	fp, _ := ref.(*futureProcess)
 
-	fp.SendUserMessage(f.pid, "hello")
+	fp.SendUserMessage(f.(*future).pid, "hello")
 	p1.AssertExpectations(t)
 	p2.AssertExpectations(t)
 	p3.AssertExpectations(t)
@@ -53,7 +53,7 @@ func TestFuture_PipeTo_TimeoutSendsError(t *testing.T) {
 	p3.On("SendUserMessage", a3, ErrTimeout)
 
 	f := NewFuture(system, 10*time.Millisecond)
-	ref, _ := system.ProcessRegistry.Get(f.pid)
+	ref, _ := system.ProcessRegistry.Get(f.(*future).pid)
 
 	f.PipeTo(a1)
 	f.PipeTo(a2)
@@ -84,7 +84,7 @@ func TestNewFuture_TimeoutNoRace(t *testing.T) {
 	_, _ = future.Result()
 }
 
-func assertFutureSuccess(future *Future, t *testing.T) interface{} {
+func assertFutureSuccess(future Future, t *testing.T) interface{} {
 	res, err := future.Result()
 	assert.NoError(t, err, "timed out")
 	return res
@@ -116,4 +116,21 @@ func TestFuture_Result_Success(t *testing.T) {
 	rootContext.Send(future.PID(), EchoResponse{})
 	resp := assertFutureSuccess(future, t)
 	a.Equal(EchoResponse{}, resp)
+}
+
+func testWork(ctx Context) {
+	if _, ok := ctx.Message().(string); ok {
+		ctx.Respond("pong")
+	}
+}
+
+func BenchmarkProto(b *testing.B) {
+	system := NewActorSystem()
+	pid := system.Root.Spawn(PropsFromFunc(testWork))
+	for i := 0; i < b.N; i++ {
+		_, err := system.Root.RequestFuture(pid, "ping", time.Second).Result()
+		if err != nil {
+			panic(err)
+		}
+	}
 }

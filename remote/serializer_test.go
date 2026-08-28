@@ -3,7 +3,7 @@ package remote
 import (
 	"testing"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -54,4 +54,20 @@ func TestProtobufSerializer_Serialize_PID(t *testing.T) {
 	typed := res.(*actor.PID)
 	assert.Equal(t, "actor.PID", typeName)
 	assert.True(t, m.Equal(typed))
+}
+
+func TestSerialize_InvalidSerializerID(t *testing.T) {
+	_, _, err := Serialize("msg", int32(len(serializers)))
+	assert.Error(t, err)
+}
+
+func TestDeserialize_InvalidSerializerID(t *testing.T) {
+	_, err := Deserialize([]byte("{}"), "", int32(len(serializers)))
+	assert.Error(t, err)
+}
+
+// TestProtobufSerializer_Deserialize_InvalidType ensures an error is returned when the message type is unknown.
+func TestProtobufSerializer_Deserialize_InvalidType(t *testing.T) {
+	_, err := Deserialize([]byte{}, "unknown.Type", 0)
+	assert.Error(t, err)
 }

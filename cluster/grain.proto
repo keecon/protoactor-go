@@ -1,6 +1,6 @@
 syntax = "proto3";
 package cluster;
-option go_package = "/github.com/keecon/protoactor-go/cluster";
+option go_package = "/github.com/asynkron/protoactor-go/cluster";
 
 message GrainRequest {
   int32 method_index = 1;
@@ -14,5 +14,7 @@ message GrainResponse {
 }
 
 message GrainErrorResponse {
-  string err = 1;
-}
+  string reason = 1;
+  string message = 2;
+  map<string, string> metadata = 3;
+};

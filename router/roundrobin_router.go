@@ -1,9 +1,10 @@
 package router
 
 import (
+	"sync"
 	"sync/atomic"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 type roundRobinGroupRouter struct {
@@ -18,23 +19,38 @@ type roundRobinState struct {
 	index   int32
 	routees *actor.PIDSet
 	sender  actor.SenderContext
+	mu      sync.RWMutex
 }
 
 func (state *roundRobinState) SetSender(sender actor.SenderContext) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
 	state.sender = sender
 }
 
 func (state *roundRobinState) SetRoutees(routees *actor.PIDSet) {
-	state.routees = routees
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	state.routees = routees.Clone()
 }
 
 func (state *roundRobinState) GetRoutees() *actor.PIDSet {
-	return state.routees
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	return state.routees.Clone()
 }
 
 func (state *roundRobinState) RouteMessage(message interface{}) {
-	pid := roundRobinRoutee(&state.index, state.routees)
-	state.sender.Send(pid, message)
+	state.mu.RLock()
+	routees := state.routees
+	sender := state.sender
+	state.mu.RUnlock()
+
+	pid := roundRobinRoutee(&state.index, routees)
+	sender.Send(pid, message)
 }
 
 func NewRoundRobinPool(size int, opts ...actor.PropsOption) *actor.Props {

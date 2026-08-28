@@ -1,7 +1,8 @@
+// Package middleware provides reusable actor middleware components.
 package middleware
 
 import (
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"log/slog"
 )
 

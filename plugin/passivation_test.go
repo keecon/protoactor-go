@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -14,9 +14,8 @@ type SmartActor struct {
 	PassivationHolder
 }
 
-func (state *SmartActor) Receive(context actor.Context) {
-	switch context.Message().(type) {
-	}
+func (state *SmartActor) Receive(_ actor.Context) {
+	// no-op
 }
 
 func TestPassivation(t *testing.T) {

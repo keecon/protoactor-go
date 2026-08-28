@@ -3,16 +3,16 @@ package cluster
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/eventstream"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/eventstream"
 	"golang.org/x/exp/maps"
 )
 
 const TopicActorKind = "prototopic"
 
+// TopicActor manages subscriptions and publishes messages for a topic.
 type TopicActor struct {
 	topic                string
 	subscribers          map[subscribeIdentityStruct]*SubscriberIdentity
@@ -21,6 +21,7 @@ type TopicActor struct {
 	shouldThrottle       actor.ShouldThrottle
 }
 
+// NewTopicActor creates a new TopicActor using the provided store and logger.
 func NewTopicActor(store KeyValueStore[*Subscribers], logger *slog.Logger) *TopicActor {
 	return &TopicActor{
 		subscriptionStore: store,
@@ -31,6 +32,7 @@ func NewTopicActor(store KeyValueStore[*Subscribers], logger *slog.Logger) *Topi
 	}
 }
 
+// Receive processes actor lifecycle and pub-sub messages.
 func (t *TopicActor) Receive(c actor.Context) {
 	switch msg := c.Message().(type) {
 	case *actor.Started:
@@ -165,19 +167,19 @@ func (t *TopicActor) logDeliveryErrors(reports []*SubscriberDeliveryReport, logg
 		for i, report := range reports {
 			subscribers[i] = report.Subscriber.String()
 		}
-		logger.Error("Topic following subscribers could not process the batch", slog.String("topic", t.topic), slog.String("subscribers", strings.Join(subscribers, ",")))
+		logger.Error("Topic following subscribers could not process the batch", slog.String("topic", t.topic), slog.Any("subscribers", subscribers))
 	}
 }
 
 // unsubscribeUnreachablePidSubscribers deletes all subscribers that have a PID that is unreachable
-func (t *TopicActor) unsubscribeUnreachablePidSubscribers(_ actor.Context, allInvalidDeliveryReports []*SubscriberDeliveryReport) {
+func (t *TopicActor) unsubscribeUnreachablePidSubscribers(c actor.Context, allInvalidDeliveryReports []*SubscriberDeliveryReport) {
 	subscribers := make([]subscribeIdentityStruct, 0, len(allInvalidDeliveryReports))
 	for _, r := range allInvalidDeliveryReports {
 		if r.Subscriber.GetPid() != nil && r.Status == DeliveryStatus_SubscriberNoLongerReachable {
 			subscribers = append(subscribers, newSubscribeIdentityStruct(r.Subscriber))
 		}
 	}
-	t.removeSubscribers(subscribers, nil)
+	t.removeSubscribers(subscribers, c.Logger())
 }
 
 // onClusterTopologyChanged handles a ClusterTopology message
@@ -217,7 +219,7 @@ func (t *TopicActor) unsubscribeSubscribersOnMembersThatLeft(c actor.Context) {
 			}
 		}
 	}
-	t.removeSubscribers(subscribersThatLeft, nil)
+	t.removeSubscribers(subscribersThatLeft, c.Logger())
 }
 
 // removeSubscribers remove subscribers from the topic
@@ -227,7 +229,16 @@ func (t *TopicActor) removeSubscribers(subscribersThatLeft []subscribeIdentitySt
 			delete(t.subscribers, subscriber)
 		}
 		if t.shouldThrottle() == actor.Open {
-			logger.Warn("Topic removed subscribers, because they are dead or they are on members that left the clusterIdentity:", slog.String("topic", t.topic), slog.Any("subscribers", subscribersThatLeft))
+			// slog json handler cannot print private fields
+			ids := make([]string, 0, len(subscribersThatLeft))
+			for _, subscriber := range subscribersThatLeft {
+				if subscriber.isPID {
+					ids = append(ids, subscriber.pid.id)
+				} else {
+					ids = append(ids, subscriber.clusterIdentity.identity)
+				}
+			}
+			logger.Warn("Topic removed subscribers, because they are dead or they are on members that left the clusterIdentity:", slog.String("topic", t.topic), slog.Any("subscribers", ids))
 		}
 		t.saveSubscriptionsInTopicActor(logger)
 	}
@@ -252,7 +263,7 @@ func (t *TopicActor) loadSubscriptions(topic string, logger *slog.Logger) *Subsc
 
 // saveSubscriptionsInTopicActor saves the TopicActor.subscribers for the TopicActor.topic to the subscription store
 func (t *TopicActor) saveSubscriptionsInTopicActor(logger *slog.Logger) {
-	var subscribers *Subscribers = &Subscribers{Subscribers: maps.Values(t.subscribers)}
+	subscribers := &Subscribers{Subscribers: maps.Values(t.subscribers)}
 
 	// TODO: cancellation logic config?
 	logger.Debug("Saving subscriptions for topic", slog.String("topic", t.topic), slog.Any("subscriptions", subscribers))
@@ -292,15 +303,6 @@ func newPidStruct(pid *actor.PID) pidStruct {
 	}
 }
 
-// toPID converts a pidStruct to a *actor.PID
-func (p pidStruct) toPID() *actor.PID {
-	return &actor.PID{
-		Address:   p.address,
-		Id:        p.id,
-		RequestId: p.requestId,
-	}
-}
-
 type clusterIdentityStruct struct {
 	identity string
 	kind     string
@@ -311,14 +313,6 @@ func newClusterIdentityStruct(clusterIdentity *ClusterIdentity) clusterIdentityS
 	return clusterIdentityStruct{
 		identity: clusterIdentity.Identity,
 		kind:     clusterIdentity.Kind,
-	}
-}
-
-// toClusterIdentity converts a clusterIdentityStruct to a *ClusterIdentity
-func (c clusterIdentityStruct) toClusterIdentity() *ClusterIdentity {
-	return &ClusterIdentity{
-		Identity: c.identity,
-		Kind:     c.kind,
 	}
 }
 
@@ -341,17 +335,5 @@ func newSubscribeIdentityStruct(subscriberIdentity *SubscriberIdentity) subscrib
 	return subscribeIdentityStruct{
 		isPID:           false,
 		clusterIdentity: newClusterIdentityStruct(subscriberIdentity.GetClusterIdentity()),
-	}
-}
-
-// toSubscriberIdentity converts a subscribeIdentityStruct to a *SubscriberIdentity
-func (s subscribeIdentityStruct) toSubscriberIdentity() *SubscriberIdentity {
-	if s.isPID {
-		return &SubscriberIdentity{
-			Identity: &SubscriberIdentity_Pid{Pid: s.pid.toPID()},
-		}
-	}
-	return &SubscriberIdentity{
-		Identity: &SubscriberIdentity_ClusterIdentity{ClusterIdentity: s.clusterIdentity.toClusterIdentity()},
 	}
 }

@@ -1,7 +1,8 @@
+// Package propagator offers utilities for forwarding middleware and decorators.
 package propagator
 
 import (
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 type MiddlewarePropagator struct {

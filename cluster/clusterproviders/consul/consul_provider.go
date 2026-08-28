@@ -1,3 +1,4 @@
+// Package consul provides a Consul-based cluster provider.
 package consul
 
 import (
@@ -6,14 +7,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 
+	"github.com/asynkron/protoactor-go/cluster"
 	"github.com/hashicorp/consul/api"
-	"github.com/keecon/protoactor-go/cluster"
 )
 
-var ProviderShuttingDownError = fmt.Errorf("consul cluster provider is shutting down")
+// ErrProviderShuttingDown is returned when operations occur during provider shutdown.
+var ErrProviderShuttingDown = fmt.Errorf("consul cluster provider is shutting down")
 
+// ProviderShuttingDownError is retained for backward compatibility.
+//
+//lint:ignore ST1012 deprecated: use ErrProviderShuttingDown instead
+var ProviderShuttingDownError = ErrProviderShuttingDown
+
+// Provider integrates Consul as a cluster provider for Proto.Actor.
 type Provider struct {
 	cluster            *cluster.Cluster
 	deregistered       bool
@@ -35,10 +43,12 @@ type Provider struct {
 	consulConfig       *api.Config
 }
 
+// New creates a new Consul provider with default configuration.
 func New(opts ...Option) (*Provider, error) {
 	return NewWithConfig(&api.Config{}, opts...)
 }
 
+// NewWithConfig creates a new Consul provider using the supplied Consul config.
 func NewWithConfig(consulConfig *api.Config, opts ...Option) (*Provider, error) {
 	client, err := api.NewClient(consulConfig)
 	if err != nil {
@@ -61,7 +71,7 @@ func NewWithConfig(consulConfig *api.Config, opts ...Option) (*Provider, error) 
 func (p *Provider) init(c *cluster.Cluster) error {
 	knownKinds := c.GetClusterKinds()
 	clusterName := c.Config.Name
-	memberId := c.ActorSystem.ID
+	memberID := c.ActorSystem.ID
 
 	host, port, err := c.ActorSystem.GetHostPort()
 	if err != nil {
@@ -69,7 +79,7 @@ func (p *Provider) init(c *cluster.Cluster) error {
 	}
 
 	p.cluster = c
-	p.id = memberId
+	p.id = memberID
 	p.clusterName = clusterName
 	p.address = host
 	p.port = port
@@ -77,6 +87,7 @@ func (p *Provider) init(c *cluster.Cluster) error {
 	return nil
 }
 
+// StartMember connects the provider to Consul and registers the node as a member.
 func (p *Provider) StartMember(c *cluster.Cluster) error {
 	err := p.init(c)
 	if err != nil {
@@ -94,6 +105,7 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	return nil
 }
 
+// StartClient connects the provider to Consul without registering the node as a member.
 func (p *Provider) StartClient(c *cluster.Cluster) error {
 	if err := p.init(c); err != nil {
 		return err
@@ -103,6 +115,7 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 	return nil
 }
 
+// DeregisterMember removes the provider's service registration from Consul.
 func (p *Provider) DeregisterMember() error {
 	err := p.deregisterService()
 	if err != nil {
@@ -113,7 +126,8 @@ func (p *Provider) DeregisterMember() error {
 	return nil
 }
 
-func (p *Provider) Shutdown(graceful bool) error {
+// Shutdown stops the provider and its internal actor.
+func (p *Provider) Shutdown(_ bool) error {
 	if p.shutdown {
 		return nil
 	}
@@ -176,13 +190,13 @@ func (p *Provider) notifyStatuses() {
 	var members []*cluster.Member
 	for _, v := range statuses {
 		if len(v.Checks) > 0 && v.Checks.AggregatedStatus() == api.HealthPassing {
-			memberId := v.Service.Meta["id"]
-			if memberId == "" {
-				memberId = fmt.Sprintf("%v@%v:%v", p.clusterName, v.Service.Address, v.Service.Port)
-				p.cluster.Logger().Info("meta['id'] was empty, fixeds", slog.String("id", memberId))
+			memberID := v.Service.Meta["id"]
+			if memberID == "" {
+				memberID = fmt.Sprintf("%v@%v:%v", p.clusterName, v.Service.Address, v.Service.Port)
+				p.cluster.Logger().Info("meta['id'] was empty, fixeds", slog.String("id", memberID))
 			}
 			members = append(members, &cluster.Member{
-				Id:    memberId,
+				Id:    memberID,
 				Host:  v.Service.Address,
 				Port:  int32(v.Service.Port),
 				Kinds: v.Service.Tags,

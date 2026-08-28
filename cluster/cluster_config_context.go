@@ -1,11 +1,11 @@
-// Copyright (C) 2017 - 2022 Asynkron.se <http://www.asynkron.se>
+// Copyright (C) 2017 - 2024 Asynkron.se <http://www.asynkron.se>
 
 package cluster
 
 import (
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 const (

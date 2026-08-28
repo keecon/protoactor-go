@@ -3,7 +3,7 @@ package cluster
 import (
 	"sync/atomic"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 // Kind represents the kinds of actors a cluster can manage
@@ -52,6 +52,10 @@ func (ak *ActivatedKind) Inc() {
 	atomic.AddInt32(&ak.count, 1)
 }
 
-func (ak *ActivatedKind) Dev() {
+func (ak *ActivatedKind) Dec() {
 	atomic.AddInt32(&ak.count, -1)
+}
+
+func (ak *ActivatedKind) Count() int32 {
+	return atomic.LoadInt32(&ak.count)
 }

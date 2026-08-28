@@ -3,7 +3,7 @@ package router
 import (
 	"testing"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -51,7 +51,7 @@ func TestGroupRouterActor_Receive_RemoveRoute(t *testing.T) {
 	c := new(mockContext)
 	c.On("Message").Return(&RemoveRoutee{PID: p1})
 	c.On("Unwatch", p1).
-		Run(func(args mock.Arguments) {
+		Run(func(mock.Arguments) {
 		}).Once()
 
 	state.On("GetRoutees").Return(actor.NewPIDSet(p1, p2))

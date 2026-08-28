@@ -1,14 +1,15 @@
+// Package consul provides a Consul-based cluster provider.
 package consul
 
 import (
 	"fmt"
 	"log/slog"
 
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/scheduler"
 	"github.com/hashicorp/consul/api"
 	"github.com/hashicorp/consul/api/watch"
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/cluster"
-	"github.com/keecon/protoactor-go/scheduler"
 )
 
 type providerActor struct {
@@ -18,8 +19,11 @@ type providerActor struct {
 }
 
 type (
-	RegisterService   struct{}
-	UpdateTTL         struct{}
+	// RegisterService asks the provider actor to register its service in Consul.
+	RegisterService struct{}
+	// UpdateTTL triggers a TTL refresh in Consul for the registered service.
+	UpdateTTL struct{}
+	// MemberListUpdated carries the latest set of cluster members retrieved from Consul.
 	MemberListUpdated struct {
 		members []*cluster.Member
 		index   uint64
@@ -109,13 +113,13 @@ func (pa *providerActor) processConsulUpdate(index uint64, result interface{}, c
 	var members []*cluster.Member
 	for _, v := range serviceEntries {
 		if len(v.Checks) > 0 && v.Checks.AggregatedStatus() == api.HealthPassing {
-			memberId := v.Service.Meta["id"]
-			if memberId == "" {
-				memberId = fmt.Sprintf("%v@%v:%v", pa.clusterName, v.Service.Address, v.Service.Port)
-				ctx.Logger().Info("meta['id'] was empty, fixed", slog.String("id", memberId))
+			memberID := v.Service.Meta["id"]
+			if memberID == "" {
+				memberID = fmt.Sprintf("%v@%v:%v", pa.clusterName, v.Service.Address, v.Service.Port)
+				ctx.Logger().Info("meta['id'] was empty, fixed", slog.String("id", memberID))
 			}
 			members = append(members, &cluster.Member{
-				Id:    memberId,
+				Id:    memberID,
 				Host:  v.Service.Address,
 				Port:  int32(v.Service.Port),
 				Kinds: v.Service.Tags,

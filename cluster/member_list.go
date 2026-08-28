@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/eventstream"
-	"github.com/keecon/protoactor-go/remote"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/eventstream"
+	"github.com/asynkron/protoactor-go/remote"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -16,6 +16,7 @@ import (
 // the default ClusterProvider is consul.ConsulProvider which uses the Consul HTTP API to scan for changes
 type MemberList struct {
 	cluster              *Cluster
+	updateMutex          sync.Mutex
 	mutex                sync.RWMutex
 	members              *MemberSet
 	memberStrategyByKind map[string]MemberStrategy
@@ -58,16 +59,15 @@ func (ml *MemberList) stopMemberList() {
 	// ml.cluster.ActorSystem.EventStream.Unsubscribe(ml.membershipSub)
 }
 
+// InitializeTopologyConsensus registers a consensus check for the cluster topology hash.
 func (ml *MemberList) InitializeTopologyConsensus() {
-	ml.topologyConsensus = ml.cluster.Gossip.RegisterConsensusCheck("topology", func(any *anypb.Any) interface{} {
+	ml.topologyConsensus = ml.cluster.Gossip.RegisterConsensusCheck("topology", func(any *anypb.Any) (uint64, error) {
 		var topology ClusterTopology
-		if unpackErr := any.UnmarshalTo(&topology); unpackErr != nil {
-			ml.cluster.Logger().Error("could not unpack topology message", slog.Any("error", unpackErr))
-
-			return nil
+		if err := any.UnmarshalTo(&topology); err != nil {
+			ml.cluster.Logger().Error("could not unpack topology message", slog.Any("error", err))
+			return 0, err
 		}
-
-		return topology.TopologyHash
+		return topology.TopologyHash, nil
 	})
 }
 
@@ -80,29 +80,6 @@ func (ml *MemberList) TopologyConsensus(ctx context.Context) (uint64, bool) {
 	}
 
 	return 0, false
-}
-
-func (ml *MemberList) getPartitionMember(name, kind string) string {
-	ml.mutex.RLock()
-	defer ml.mutex.RUnlock()
-
-	var res string
-	if memberStrategy, ok := ml.memberStrategyByKind[kind]; ok {
-		res = memberStrategy.GetPartition(name)
-	}
-
-	return res
-}
-
-func (ml *MemberList) getPartitionMemberV2(clusterIdentity *ClusterIdentity) string {
-	ml.mutex.RLock()
-	defer ml.mutex.RUnlock()
-
-	if ms, ok := ml.memberStrategyByKind[clusterIdentity.Kind]; ok {
-		return ms.GetPartition(clusterIdentity.Identity)
-	}
-
-	return ""
 }
 
 func (ml *MemberList) GetActivatorMember(kind string, requestSourceAddress string) string {
@@ -118,16 +95,24 @@ func (ml *MemberList) GetActivatorMember(kind string, requestSourceAddress strin
 }
 
 func (ml *MemberList) Length() int {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members.Len()
 }
 
 func (ml *MemberList) Members() *MemberSet {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members
 }
 
 func (ml *MemberList) UpdateClusterTopology(members Members) {
+	ml.updateMutex.Lock()
+	defer ml.updateMutex.Unlock()
+
 	ml.mutex.Lock()
-	defer ml.mutex.Unlock()
 
 	// TLDR:
 	// this method basically filters out any member status in the blocked list
@@ -136,6 +121,7 @@ func (ml *MemberList) UpdateClusterTopology(members Members) {
 
 	topology, done, active, joined, left := ml.getTopologyChanges(members)
 	if done {
+		ml.mutex.Unlock()
 		return
 	}
 
@@ -149,12 +135,16 @@ func (ml *MemberList) UpdateClusterTopology(members Members) {
 	// notify that these members left
 	for _, m := range left.Members() {
 		ml.memberLeave(m)
-		ml.TerminateMember(m)
 	}
 
 	// notify that these members joined
 	for _, m := range joined.Members() {
 		ml.memberJoin(m)
+	}
+	ml.mutex.Unlock()
+
+	for _, m := range left.Members() {
+		ml.TerminateMember(m)
 	}
 
 	ml.cluster.ActorSystem.EventStream.Publish(topology)
@@ -225,7 +215,11 @@ func (ml *MemberList) TerminateMember(m *Member) {
 }
 
 func (ml *MemberList) BroadcastEvent(message interface{}, includeSelf bool) {
-	for _, m := range ml.members.members {
+	ml.mutex.RLock()
+	members := ml.members
+	ml.mutex.RUnlock()
+
+	for _, m := range members.members {
 		if !includeSelf && m.Id == ml.cluster.ActorSystem.ID {
 			continue
 		}
@@ -236,6 +230,9 @@ func (ml *MemberList) BroadcastEvent(message interface{}, includeSelf bool) {
 }
 
 func (ml *MemberList) ContainsMemberID(memberID string) bool {
+	ml.mutex.RLock()
+	defer ml.mutex.RUnlock()
+
 	return ml.members.ContainsID(memberID)
 }
 

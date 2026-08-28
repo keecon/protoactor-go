@@ -229,9 +229,10 @@ FakesAssemblies/
 # MacOS
 .DS_Store
 
-# go.sum of examples
-_examples/**/go.sum
-_examples/**/go.work.sum
+# go.work
+/go.work
+/go.work.sum
+
 .vscode/
 
 /test_report.html

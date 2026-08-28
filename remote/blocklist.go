@@ -1,5 +1,5 @@
 /*
-	Copyright (C) 2017 - 2022 Asynkron.se <http://www.asynkron.se>
+	Copyright (C) 2017 - 2024 Asynkron.se <http://www.asynkron.se>
 */
 
 package remote
@@ -10,12 +10,13 @@ import (
 	"github.com/asynkron/gofun/set"
 )
 
-// TODO: document it
+// BlockList keeps track of blocked cluster member IDs.
 type BlockList struct {
 	mu             *sync.RWMutex
 	blockedMembers *set.ImmutableSet[string]
 }
 
+// NewBlockList creates an empty BlockList.
 func NewBlockList() *BlockList {
 	blocklist := BlockList{
 		mu:             &sync.RWMutex{},
@@ -24,7 +25,11 @@ func NewBlockList() *BlockList {
 	return &blocklist
 }
 
+// BlockedMembers returns the set of blocked member IDs.
 func (bl *BlockList) BlockedMembers() set.Set[string] {
+	bl.mu.RLock()
+	defer bl.mu.RUnlock()
+
 	return bl.blockedMembers
 }
 
@@ -40,7 +45,9 @@ func (bl *BlockList) Block(memberIDs ...string) {
 // IsBlocked returns true if the given memberID string has been
 // ever added to the BlockList
 func (bl *BlockList) IsBlocked(memberID string) bool {
-	// acquire our mutual exclusion primitive for reading
+	bl.mu.RLock()
+	defer bl.mu.RUnlock()
+
 	return bl.blockedMembers.Contains(memberID)
 }
 

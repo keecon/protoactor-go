@@ -5,12 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
+	"github.com/asynkron/protoactor-go/ctxext"
+	"github.com/asynkron/protoactor-go/metrics"
 	"github.com/emirpasic/gods/stacks/linkedliststack"
-	"github.com/keecon/protoactor-go/ctxext"
-	"github.com/keecon/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -214,17 +215,13 @@ func (ctx *actorContext) Unwatch(who *PID) {
 }
 
 func (ctx *actorContext) SetReceiveTimeout(d time.Duration) {
-	if d <= 0 {
-		panic("Duration must be greater than zero")
+	if d < time.Millisecond {
+		// anything less than 1 millisecond is set to zero
+		d = 0
 	}
 
 	if d == ctx.receiveTimeout {
 		return
-	}
-
-	if d < time.Millisecond {
-		// anything less than 1 millisecond is set to zero
-		d = 0
 	}
 
 	ctx.receiveTimeout = d
@@ -268,20 +265,32 @@ func (ctx *actorContext) Forward(pid *PID) {
 	ctx.sendUserMessage(pid, ctx.messageOrEnvelope)
 }
 
-func (ctx *actorContext) ReenterAfter(f *Future, cont func(res interface{}, err error)) {
+func (ctx *actorContext) ReenterAfter(f Future, cont func(res interface{}, err error)) {
+	concrete := f.(*future)
 	wrapper := func() {
-		cont(f.result, f.err)
+		cont(concrete.result, concrete.err)
 	}
 
 	message := ctx.messageOrEnvelope
 	// invoke the callback when the future completes
-	f.continueWith(func(res interface{}, err error) {
+	concrete.continueWith(func(_ interface{}, _ error) {
 		// send the wrapped callback as a continuation message to self
 		ctx.self.sendSystemMessage(ctx.actorSystem, &continuation{
 			f:       wrapper,
 			message: message,
 		})
 	})
+}
+
+func (ctx *actorContext) Capture() *CapturedContext {
+	return &CapturedContext{
+		MessageEnvelope: WrapEnvelope(ctx.messageOrEnvelope),
+		Context:         ctx,
+	}
+}
+
+func (ctx *actorContext) Apply(captured *CapturedContext) {
+	ctx.messageOrEnvelope = captured.MessageEnvelope
 }
 
 //
@@ -327,7 +336,7 @@ func (ctx *actorContext) RequestWithCustomSender(pid *PID, message interface{}, 
 	ctx.sendUserMessage(pid, env)
 }
 
-func (ctx *actorContext) RequestFuture(pid *PID, message interface{}, timeout time.Duration) *Future {
+func (ctx *actorContext) RequestFuture(pid *PID, message interface{}, timeout time.Duration) Future {
 	future := NewFuture(ctx.actorSystem, timeout)
 	env := &MessageEnvelope{
 		Header:  nil,
@@ -381,7 +390,7 @@ func (ctx *actorContext) defaultReceive() {
 //
 
 func (ctx *actorContext) Spawn(props *Props) *PID {
-	pid, err := ctx.SpawnNamed(props, ctx.actorSystem.ProcessRegistry.NextId())
+	pid, err := ctx.SpawnNamed(props, ctx.actorSystem.ProcessRegistry.NextID())
 	if err != nil {
 		panic(err)
 	}
@@ -390,7 +399,7 @@ func (ctx *actorContext) Spawn(props *Props) *PID {
 }
 
 func (ctx *actorContext) SpawnPrefix(props *Props, prefix string) *PID {
-	pid, err := ctx.SpawnNamed(props, prefix+ctx.actorSystem.ProcessRegistry.NextId())
+	pid, err := ctx.SpawnNamed(props, prefix+ctx.actorSystem.ProcessRegistry.NextID())
 	if err != nil {
 		panic(err)
 	}
@@ -428,9 +437,9 @@ func (ctx *actorContext) SpawnNamed(props *Props, name string) (*PID, error) {
 
 // Stop will stop actor immediately regardless of existing user messages in mailbox.
 func (ctx *actorContext) Stop(pid *PID) {
-	if ctx.actorSystem.Config.MetricsProvider != nil {
-		metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-		if ok && metricsSystem.enabled {
+	if ctx.actorSystem.Config.MetricsEnabled {
+		metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionID).(*Metrics)
+		if ok && metricsSystem.Enabled() {
 			_ctx := context.Background()
 			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
 				instruments.ActorStoppedCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
@@ -442,8 +451,8 @@ func (ctx *actorContext) Stop(pid *PID) {
 }
 
 // StopFuture will stop actor immediately regardless of existing user messages in mailbox, and return its future.
-func (ctx *actorContext) StopFuture(pid *PID) *Future {
-	future := NewFuture(ctx.actorSystem, 10*time.Second)
+func (ctx *actorContext) StopFuture(pid *PID) Future {
+	future := newFuture(ctx.actorSystem, 10*time.Second)
 
 	pid.sendSystemMessage(ctx.actorSystem, &Watch{Watcher: future.pid})
 	ctx.Stop(pid)
@@ -457,8 +466,8 @@ func (ctx *actorContext) Poison(pid *PID) {
 }
 
 // PoisonFuture will tell actor to stop after processing current user messages in mailbox, and return its future.
-func (ctx *actorContext) PoisonFuture(pid *PID) *Future {
-	future := NewFuture(ctx.actorSystem, 10*time.Second)
+func (ctx *actorContext) PoisonFuture(pid *PID) Future {
+	future := newFuture(ctx.actorSystem, 10*time.Second)
 
 	pid.sendSystemMessage(ctx.actorSystem, &Watch{Watcher: future.pid})
 	ctx.Poison(pid)
@@ -486,23 +495,26 @@ func (ctx *actorContext) InvokeUserMessage(md interface{}) {
 		}
 	}
 
-	systemMetrics, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-	if ok && systemMetrics.enabled {
-		t := time.Now()
-
-		ctx.processMessage(md)
-
-		delta := time.Since(t)
+	systemMetrics, ok := ctx.actorSystem.Extensions.Get(extensionID).(*Metrics)
+	if ok && ctx.actorSystem.Config.MetricsEnabled && systemMetrics.Enabled() {
 		_ctx := context.Background()
+		instruments := systemMetrics.metrics.Get(metrics.InternalActorMetrics)
+		if instruments != nil {
+			if ap, ok := ctx.self.ref(ctx.actorSystem).(*ActorProcess); ok {
+				instruments.ActorMailboxLength.Record(_ctx, int64(ap.mailbox.UserMessageCount()), metric.WithAttributes(systemMetrics.CommonLabels(ctx)...))
+			}
 
-		if instruments := systemMetrics.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			histogram := instruments.ActorMessageReceiveHistogram
+			t := time.Now()
+			ctx.processMessage(md)
+			delta := time.Since(t)
 
 			labels := append(
 				systemMetrics.CommonLabels(ctx),
-				attribute.String("messagetype", fmt.Sprintf("%T", md)),
+				attribute.String("messagetype", MessageName(md)),
 			)
-			histogram.Record(_ctx, delta.Seconds(), metric.WithAttributes(labels...))
+			instruments.ActorMessageReceiveDuration.Record(_ctx, delta.Seconds(), metric.WithAttributes(labels...))
+		} else {
+			ctx.processMessage(md)
 		}
 	} else {
 		ctx.processMessage(md)
@@ -535,11 +547,13 @@ func (ctx *actorContext) incarnateActor() {
 	atomic.StoreInt32(&ctx.state, stateAlive)
 	ctx.actor = ctx.props.producer(ctx.actorSystem)
 
-	metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-	if ok && metricsSystem.enabled {
-		_ctx := context.Background()
-		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorSpawnCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+	if ctx.actorSystem.Config.MetricsEnabled {
+		metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionID).(*Metrics)
+		if ok && metricsSystem.Enabled() {
+			_ctx := context.Background()
+			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
+				instruments.ActorSpawnCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+			}
 		}
 	}
 }
@@ -599,11 +613,13 @@ func (ctx *actorContext) handleRestart() {
 	ctx.stopAllChildren()
 	ctx.tryRestartOrTerminate()
 
-	metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-	if ok && metricsSystem.enabled {
-		_ctx := context.Background()
-		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorRestartedCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+	if ctx.actorSystem.Config.MetricsEnabled {
+		metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionID).(*Metrics)
+		if ok && metricsSystem.Enabled() {
+			_ctx := context.Background()
+			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
+				instruments.ActorRestartedCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+			}
 		}
 	}
 }
@@ -648,7 +664,7 @@ func (ctx *actorContext) stopAllChildren() {
 		return
 	}
 
-	var pids = ctx.extras.children.pids
+	pids := ctx.extras.children.pids
 	for i := len(pids) - 1; i >= 0; i-- {
 		pids[i].sendSystemMessage(ctx.actorSystem, stopMessage)
 	}
@@ -689,7 +705,7 @@ func (ctx *actorContext) finalizeStop() {
 	otherStopped := &Terminated{Who: ctx.self}
 	// Notify watchers
 	if ctx.extras != nil {
-		ctx.extras.watchers.ForEach(func(i int, pid *PID) {
+		ctx.extras.watchers.ForEach(func(_ int, pid *PID) {
 			pid.sendSystemMessage(ctx.actorSystem, otherStopped)
 		})
 	}
@@ -706,19 +722,21 @@ func (ctx *actorContext) finalizeStop() {
 //
 
 func (ctx *actorContext) EscalateFailure(reason interface{}, message interface{}) {
-	//TODO: add callstack to log?
 	ctx.Logger().Info("[ACTOR] Recovering", slog.Any("self", ctx.self), slog.Any("reason", reason))
 	// debug setting, allows to output supervision failures in console/error level
 	if ctx.actorSystem.Config.DeveloperSupervisionLogging {
+		fmt.Printf("debug.Stack(): %s\n", debug.Stack())
 		fmt.Println("[Supervision] Actor:", ctx.self, " failed with message:", message, " exception:", reason)
 		ctx.Logger().Error("[Supervision]", slog.Any("actor", ctx.self), slog.Any("message", message), slog.Any("exception", reason))
 	}
 
-	metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionId).(*Metrics)
-	if ok && metricsSystem.enabled {
-		_ctx := context.Background()
-		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			instruments.ActorFailureCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+	if ctx.actorSystem.Config.MetricsEnabled {
+		metricsSystem, ok := ctx.actorSystem.Extensions.Get(extensionID).(*Metrics)
+		if ok && metricsSystem.Enabled() {
+			_ctx := context.Background()
+			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
+				instruments.ActorFailureCount.Add(_ctx, 1, metric.WithAttributes(metricsSystem.CommonLabels(ctx)...))
+			}
 		}
 	}
 

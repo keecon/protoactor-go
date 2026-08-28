@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"google.golang.org/protobuf/proto"
 )
 
 type PubSubBatchingProducerTestSuite struct {
@@ -37,7 +38,7 @@ func (suite *PubSubBatchingProducerTestSuite) iter(from, to int) []int {
 }
 
 func (suite *PubSubBatchingProducerTestSuite) record(batch *PubSubBatch) (*PublishResponse, error) {
-	b := &PubSubBatch{Envelopes: make([]interface{}, 0, len(batch.Envelopes))}
+	b := &PubSubBatch{Envelopes: make([]proto.Message, 0, len(batch.Envelopes))}
 	b.Envelopes = append(b.Envelopes, batch.Envelopes...)
 
 	suite.batchesSent = append(suite.batchesSent, b)
@@ -69,12 +70,7 @@ func (suite *PubSubBatchingProducerTestSuite) failTimesThenSucceed(times int) fu
 	}
 }
 
-func (suite *PubSubBatchingProducerTestSuite) timeout() (*PublishResponse, error) {
-	return nil, nil
-}
-
 func (suite *PubSubBatchingProducerTestSuite) TestProducerSendsMessagesInBatches() {
-
 	producer := NewBatchingProducer(newMockPublisher(suite.record), "topic", WithBatchingProducerBatchSize(10))
 	defer producer.Dispose()
 
@@ -206,10 +202,10 @@ func (suite *PubSubBatchingProducerTestSuite) TestCanRetryOnPublishingError() {
 	retries := make([]int, 0, 10)
 	producer := NewBatchingProducer(newMockPublisher(suite.failTimesThenSucceed(3)), "topic",
 		WithBatchingProducerBatchSize(1),
-		WithBatchingProducerOnPublishingError(func(retry int, e error, batch *PubSubBatch) *PublishingErrorDecision {
-			retries = append(retries, retry)
-			return RetryBatchImmediately
-		}))
+                WithBatchingProducerOnPublishingError(func(retry int, _ error, _ *PubSubBatch) *PublishingErrorDecision {
+                        retries = append(retries, retry)
+                        return RetryBatchImmediately
+                }))
 	defer producer.Dispose()
 
 	info, err := producer.Produce(context.Background(), &TestMessage{Number: 1})
@@ -222,9 +218,9 @@ func (suite *PubSubBatchingProducerTestSuite) TestCanRetryOnPublishingError() {
 func (suite *PubSubBatchingProducerTestSuite) TestCanSkipBatchOnPublishingError() {
 	producer := NewBatchingProducer(newMockPublisher(suite.failTimesThenSucceed(1)), "topic",
 		WithBatchingProducerBatchSize(1),
-		WithBatchingProducerOnPublishingError(func(retry int, e error, batch *PubSubBatch) *PublishingErrorDecision {
-			return FailBatchAndContinue
-		}))
+                WithBatchingProducerOnPublishingError(func(_ int, _ error, _ *PubSubBatch) *PublishingErrorDecision {
+                        return FailBatchAndContinue
+                }))
 	defer producer.Dispose()
 
 	t1, err := producer.Produce(context.Background(), &TestMessage{Number: 1})
@@ -313,8 +309,8 @@ func (m *mockPublisher) PublishBatch(_ context.Context, topic string, batch *Pub
 	return m.publish(batch)
 }
 
-func (m *mockPublisher) Publish(_ context.Context, topic string, message interface{}, opts ...GrainCallOption) (*PublishResponse, error) {
-	return m.publish(&PubSubBatch{Envelopes: []interface{}{message}})
+func (m *mockPublisher) Publish(_ context.Context, topic string, message proto.Message, opts ...GrainCallOption) (*PublishResponse, error) {
+	return m.publish(&PubSubBatch{Envelopes: []proto.Message{message}})
 }
 
 type optionalFailureMockPublisher struct {
@@ -339,15 +335,15 @@ func (o *optionalFailureMockPublisher) PublishBatch(ctx context.Context, topic s
 	if o.shouldFail {
 		return nil, &testException{}
 	}
-	copiedBatch := &PubSubBatch{Envelopes: make([]interface{}, len(batch.Envelopes))}
+	copiedBatch := &PubSubBatch{Envelopes: make([]proto.Message, len(batch.Envelopes))}
 	copy(copiedBatch.Envelopes, batch.Envelopes)
 
 	o.sentBatches = append(o.sentBatches, copiedBatch)
 	return &PublishResponse{}, nil
 }
 
-func (o *optionalFailureMockPublisher) Publish(ctx context.Context, topic string, message interface{}, opts ...GrainCallOption) (*PublishResponse, error) {
-	return o.PublishBatch(ctx, topic, &PubSubBatch{Envelopes: []interface{}{message}}, opts...)
+func (o *optionalFailureMockPublisher) Publish(ctx context.Context, topic string, message proto.Message, opts ...GrainCallOption) (*PublishResponse, error) {
+	return o.PublishBatch(ctx, topic, &PubSubBatch{Envelopes: []proto.Message{message}}, opts...)
 }
 
 type testException struct{}

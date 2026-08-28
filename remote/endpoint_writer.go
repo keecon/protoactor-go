@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -34,7 +36,7 @@ type restartAfterConnectFailure struct {
 	err error
 }
 
-func (state *endpointWriter) initialize(ctx actor.Context) {
+func (state *endpointWriter) initialize(_ actor.Context) {
 	now := time.Now()
 
 	state.remote.Logger().Info("Started EndpointWriter. connecting", slog.String("address", state.address))
@@ -79,7 +81,7 @@ func (state *endpointWriter) initialize(ctx actor.Context) {
 }
 
 func (state *endpointWriter) initializeInternal() error {
-	conn, err := grpc.Dial(state.address, state.config.DialOptions...)
+	conn, err := grpc.NewClient(state.address, state.config.DialOptions...)
 	if err != nil {
 		return err
 	}
@@ -97,8 +99,9 @@ func (state *endpointWriter) initializeInternal() error {
 			ConnectRequest: &ConnectRequest{
 				ConnectionType: &ConnectRequest_ServerConnection{
 					ServerConnection: &ServerConnection{
-						SystemId: state.remote.actorSystem.ID,
-						Address:  state.remote.actorSystem.Address(),
+						MemberId:  state.remote.actorSystem.ID,
+						Address:   state.remote.actorSystem.Address(),
+						BlockList: state.remote.BlockList().BlockedMembers().ToSlice(),
 					},
 				},
 			},
@@ -119,7 +122,6 @@ func (state *endpointWriter) initializeInternal() error {
 	case *RemoteMessage_ConnectResponse:
 		state.remote.Logger().Debug("Received connect response", slog.String("fromAddress", state.address))
 		// TODO: handle blocked status received from remote server
-		break
 	default:
 		state.remote.Logger().Error("EndpointWriter got invalid connect response", slog.String("address", state.address), slog.Any("type", connection.MessageType))
 		return errors.New("invalid connect response")
@@ -151,18 +153,25 @@ func (state *endpointWriter) initializeInternal() error {
 
 	connected := &EndpointConnectedEvent{Address: state.address}
 	state.remote.actorSystem.EventStream.Publish(connected)
+
+	if state.remote.metricsEnabled {
+		_ctx := context.Background()
+		attrs := append(actor.SystemLabels(state.remote.actorSystem), attribute.String("destinationaddress", state.address))
+		state.remote.metrics.RemoteEndpointConnectedCount.Add(_ctx, 1, metric.WithAttributes(attrs...))
+	}
+
 	return nil
 }
 
 func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context) {
-	envelopes := make([]*MessageEnvelope, len(msg))
+	envelopes := make([]*MessageEnvelope, 0)
 
 	// type name uniqueness map name string to type index
 	typeNames := make(map[string]int32)
 	typeNamesArr := make([]string, 0)
 
 	targetNames := make(map[string]int32)
-	targetNamesArr := make([]*actor.PID, 0)
+	targetNamesArr := make([]string, 0)
 
 	senderNames := make(map[string]int32)
 	senderNamesArr := make([]*actor.PID, 0)
@@ -175,7 +184,7 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 		serializerID int32
 	)
 
-	for i, tmp := range msg {
+	for _, tmp := range msg {
 		switch unwrapped := tmp.(type) {
 		case *EndpointTerminatedEvent, EndpointTerminatedEvent:
 			state.remote.Logger().Debug("Handling array wrapped terminate event", slog.String("address", state.address), slog.Any("message", unwrapped))
@@ -183,7 +192,12 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 			return
 		}
 
-		rd, _ := tmp.(*remoteDeliver)
+		// ensure the message is a remoteDeliver before proceeding
+		rd, ok := tmp.(*remoteDeliver)
+		if !ok {
+			state.remote.Logger().Error("EndpointWriter received unknown message", slog.Any("message", tmp))
+			continue
+		}
 
 		if state.stream == nil { // not connected yet since first connection attempt failed and we are waiting for the retry
 			if rd.sender != nil {
@@ -205,14 +219,27 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 		// if the message can be translated to a serialization representation, we do this here
 		// this only apply to root level messages and never to nested child objects inside the message
 		message := rd.message
+		var err error
 		if v, ok := message.(RootSerializable); ok {
-			message = v.Serialize()
+			message, err = v.Serialize()
+			if err != nil {
+				state.remote.Logger().Error("EndpointWriter failed to serialize message", slog.String("address", state.address), slog.Any("error", err), slog.Any("message", v))
+				continue
+			}
 		}
 
 		bytes, typeName, err := Serialize(message, serializerID)
 		if err != nil {
-			panic(err)
+			state.remote.Logger().Error("EndpointWriter failed to serialize message", slog.String("address", state.address), slog.Any("error", err), slog.Any("message", message))
+			continue
 		}
+
+		if state.remote.metricsEnabled {
+			_ctx := context.Background()
+			attrs := append(actor.SystemLabels(state.remote.actorSystem), attribute.String("messagetype", typeName))
+			state.remote.metrics.RemoteSerializedMessageCount.Add(_ctx, 1, metric.WithAttributes(attrs...))
+		}
+
 		typeID, typeNamesArr = addToLookup(typeNames, typeName, typeNamesArr)
 		targetID, targetNamesArr = addToTargetLookup(targetNames, rd.target, targetNamesArr)
 		targetRequestID := rd.target.RequestId
@@ -223,7 +250,7 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 			senderRequestID = rd.sender.RequestId
 		}
 
-		envelopes[i] = &MessageEnvelope{
+		envelopes = append(envelopes, &MessageEnvelope{
 			MessageHeader:   header,
 			MessageData:     bytes,
 			Sender:          senderID,
@@ -232,9 +259,14 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 			SerializerId:    serializerID,
 			TargetRequestId: targetRequestID,
 			SenderRequestId: senderRequestID,
-		}
+		})
 	}
 
+	if len(envelopes) == 0 {
+		return
+	}
+
+	start := time.Now()
 	err := state.stream.Send(&RemoteMessage{
 		MessageType: &RemoteMessage_MessageBatch{
 			MessageBatch: &MessageBatch{
@@ -245,34 +277,39 @@ func (state *endpointWriter) sendEnvelopes(msg []interface{}, ctx actor.Context)
 			},
 		},
 	})
+
+	if state.remote.metricsEnabled {
+		_ctx := context.Background()
+		attrs := append(actor.SystemLabels(state.remote.actorSystem), attribute.String("destinationaddress", state.address))
+		state.remote.metrics.RemoteWriteDuration.Record(_ctx, time.Since(start).Seconds(), metric.WithAttributes(attrs...))
+	}
+
 	if err != nil {
 		ctx.Stash()
 		state.remote.Logger().Debug("gRPC Failed to send", slog.String("address", state.address), slog.Any("error", err))
-		panic("restart it")
+		ctx.Stop(ctx.Self())
 	}
 }
 
 func addToLookup(m map[string]int32, name string, a []string) (int32, []string) {
-	max := int32(len(m))
+	maxIdx := int32(len(m))
 	id, ok := m[name]
 	if !ok {
-		m[name] = max
-		id = max
+		m[name] = maxIdx
+		id = maxIdx
 		a = append(a, name)
 	}
 	return id, a
 }
 
-func addToTargetLookup(m map[string]int32, pid *actor.PID, arr []*actor.PID) (int32, []*actor.PID) {
-	max := int32(len(m))
+func addToTargetLookup(m map[string]int32, pid *actor.PID, arr []string) (int32, []string) {
+	maxIdx := int32(len(m))
 	key := pid.Address + "/" + pid.Id
 	id, ok := m[key]
 	if !ok {
-		c, _ := proto.Clone(pid).(*actor.PID)
-		c.RequestId = 0
-		m[key] = max
-		id = max
-		arr = append(arr, c)
+		m[key] = maxIdx
+		id = maxIdx
+		arr = append(arr, pid.Id)
 	}
 	return id, arr
 }
@@ -282,14 +319,14 @@ func addToSenderLookup(m map[string]int32, pid *actor.PID, arr []*actor.PID) (in
 		return 0, arr
 	}
 
-	max := int32(len(m))
+	maxIdx := int32(len(m))
 	key := pid.Address + "/" + pid.Id
 	id, ok := m[key]
 	if !ok {
 		c, _ := proto.Clone(pid).(*actor.PID)
 		c.RequestId = 0
-		m[key] = max
-		id = max
+		m[key] = maxIdx
+		id = maxIdx
 		arr = append(arr, c)
 	}
 	return id + 1, arr
@@ -322,6 +359,11 @@ func (state *endpointWriter) Receive(ctx actor.Context) {
 
 func (state *endpointWriter) closeClientConn() {
 	state.remote.Logger().Info("EndpointWriter closing client connection", slog.String("address", state.address))
+
+	if state.remote.metricsEnabled {
+		_ctx := context.Background()
+		state.remote.metrics.RemoteEndpointDisconnectedCount.Add(_ctx, 1, metric.WithAttributes(actor.SystemLabels(state.remote.actorSystem)...))
+	}
 	if state.stream != nil {
 		err := state.stream.CloseSend()
 		if err != nil {

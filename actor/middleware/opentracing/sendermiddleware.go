@@ -1,11 +1,12 @@
 package opentracing
 
 import (
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/opentracing/opentracing-go"
 	"log/slog"
 )
 
+// SenderMiddleware injects the current span into outgoing messages.
 func SenderMiddleware() actor.SenderMiddleware {
 	return func(next actor.SenderFunc) actor.SenderFunc {
 		return func(c actor.SenderContext, target *actor.PID, envelope *actor.MessageEnvelope) {

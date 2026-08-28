@@ -1,13 +1,14 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/remote"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/remote"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,16 +78,24 @@ func (p *inmemoryProvider) Shutdown(graceful bool) error {
 }
 
 type fakeIdentityLookup struct {
-	m sync.Map
+	m       sync.Map
+	cluster *Cluster
 }
 
 func (l *fakeIdentityLookup) Get(identity *ClusterIdentity) *actor.PID {
 	if val, ok := l.m.Load(identity.Identity); ok {
 		return val.(*actor.PID)
-	} else {
-		// pid := actor.NewPID("127.0.0.1", fmt.Sprintf("%s/%s", identity.Kind, identity.Identity))
-		// l.m.Store(identity.Identity, pid)
-		// return pid
+	}
+	// if the kind is registered, spawn the actor on first lookup
+	if l.cluster != nil {
+		if kind := l.cluster.GetClusterKind(identity.Kind); kind != nil {
+			props := WithClusterIdentity(kind.Props, identity)
+			pid, err := l.cluster.ActorSystem.Root.SpawnNamed(props, identity.Identity)
+			if err == nil {
+				l.m.Store(identity.Identity, pid)
+				return pid
+			}
+		}
 	}
 	return nil
 }
@@ -98,6 +107,7 @@ func (l *fakeIdentityLookup) RemovePid(identity *ClusterIdentity, pid *actor.PID
 }
 
 func (lu *fakeIdentityLookup) Setup(cluster *Cluster, kinds []string, isClient bool) {
+	lu.cluster = cluster
 }
 
 func (lu *fakeIdentityLookup) Shutdown() {
@@ -112,11 +122,11 @@ func newClusterForTest(name string, cp ClusterProvider, opts ...ConfigOption) *C
 	c.MemberList = NewMemberList(c)
 	c.Config.RequestTimeoutTime = 1 * time.Second
 	c.Remote = remote.NewRemote(system, c.Config.RemoteConfig)
+	c.IdentityLookup = &lookup
 	return c
 }
 
 func TestCluster_Call(t *testing.T) {
-	t.Skipf("Maintaining")
 	assert := assert.New(t)
 
 	members := Members{
@@ -132,18 +142,9 @@ func TestCluster_Call(t *testing.T) {
 	t.Run("invalid kind", func(t *testing.T) {
 		msg := struct{}{}
 		resp, err := c.Request("name", "nonkind", &msg)
-		assert.Equal(remote.ErrUnAvailable, err)
+		assert.ErrorContains(err, "max retries")
 		assert.Nil(resp)
 	})
-
-	// FIXME: testcase
-	// t.Run("timeout", func(t *testing.T) {
-	// 	msg := struct{}{}
-	// 	callopts := NewGrainCallOptions(c).WithRetryCount(2).WithRequestTimeout(1 * time.Second)
-	// 	resp, err := c.Call("name", "kind", &msg, callopts)
-	// 	assert.Equalf(Remote.ErrUnknownError, err, "%v", err)
-	// 	assert.Nil(resp)
-	// })
 
 	testProps := actor.PropsFromFunc(
 		func(context actor.Context) {
@@ -162,11 +163,16 @@ func TestCluster_Call(t *testing.T) {
 		assert.NoError(err)
 		assert.Equal(&struct{ Code int }{9528}, resp)
 	})
-	// t.Fatalf("need more testcases for cluster.Call")
+
+	t.Run("timeout", func(t *testing.T) {
+		msg := struct{}{}
+		resp, err := c.Request("name", "kind", &msg, WithTimeout(time.Millisecond))
+		assert.ErrorIs(err, context.DeadlineExceeded)
+		assert.Nil(resp)
+	})
 }
 
 func TestCluster_Get(t *testing.T) {
-	t.Skipf("Maintaining")
 	cp := newInmemoryProvider()
 	kind := NewKind("kind", actor.PropsFromFunc(func(ctx actor.Context) {
 		switch msg := ctx.Message().(type) {

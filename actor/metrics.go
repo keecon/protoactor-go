@@ -1,21 +1,21 @@
-// Copyright (C) 2017 - 2022 Asynkron.se <http://www.asynkron.se>
+// Copyright (C) 2017 - 2024 Asynkron.se <http://www.asynkron.se>
 
 package actor
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 
-	"github.com/keecon/protoactor-go/extensions"
-	"github.com/keecon/protoactor-go/metrics"
+	"github.com/asynkron/protoactor-go/extensions"
+	"github.com/asynkron/protoactor-go/metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
-var extensionId = extensions.NextExtensionID()
+var extensionID = extensions.NextExtensionID()
 
+// Metrics provides access to system-wide metric instrumentation.
 type Metrics struct {
 	metrics     *metrics.ProtoMetrics
 	enabled     bool
@@ -24,18 +24,28 @@ type Metrics struct {
 
 var _ extensions.Extension = &Metrics{}
 
+// Enabled reports whether metrics collection is enabled.
 func (m *Metrics) Enabled() bool {
 	return m.enabled
 }
 
+// ExtensionID returns the unique ID for the metrics extension.
 func (m *Metrics) ExtensionID() extensions.ExtensionID {
-	return extensionId
+	return extensionID
 }
 
+// NewMetrics initializes metrics collection for the given actor system using the
+// supplied OpenTelemetry MeterProvider. It also sets the global MeterProvider via
+// otel.SetMeterProvider, which changes process-wide state so other packages will
+// use the same provider.
 func NewMetrics(system *ActorSystem, provider metric.MeterProvider) *Metrics {
-	if provider == nil {
+	if provider == nil || !system.Config.MetricsEnabled {
 		return &Metrics{}
 	}
+
+	// Configure the global OpenTelemetry MeterProvider so that subsequent metric
+	// instruments use the supplied provider.
+	otel.SetMeterProvider(provider)
 
 	return &Metrics{
 		metrics:     metrics.NewProtoMetrics(system.Logger()),
@@ -44,23 +54,20 @@ func NewMetrics(system *ActorSystem, provider metric.MeterProvider) *Metrics {
 	}
 }
 
-func (m *Metrics) PrepareMailboxLengthGauge() {
-	meter := otel.Meter(metrics.LibName)
-	gauge, err := meter.Int64ObservableGauge("protoactor_actor_mailbox_length",
-		metric.WithDescription("Actor's Mailbox Length"),
-		metric.WithUnit("1"))
-	if err != nil {
-		err = fmt.Errorf("failed to create ActorMailBoxLength instrument, %w", err)
-		m.actorSystem.Logger().Error(err.Error(), slog.Any("error", err))
+// SystemLabels returns a standard set of attributes that identify the actor system
+// emitting the metric. These labels are used across modules to maintain
+// consistency in OpenTelemetry reporting.
+func SystemLabels(system *ActorSystem) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String("address", system.Address()),
+		attribute.String("id", system.ID),
 	}
-	m.metrics.Instruments().SetActorMailboxLengthGauge(gauge)
 }
 
+// CommonLabels returns the default set of labels for an actor metric, including
+// system-wide labels and the specific actor type.
 func (m *Metrics) CommonLabels(ctx Context) []attribute.KeyValue {
-	labels := []attribute.KeyValue{
-		attribute.String("address", ctx.ActorSystem().Address()),
+	return append(SystemLabels(ctx.ActorSystem()),
 		attribute.String("actortype", strings.Replace(fmt.Sprintf("%T", ctx.Actor()), "*", "", 1)),
-	}
-
-	return labels
+	)
 }

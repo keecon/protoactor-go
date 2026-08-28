@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/keecon/protoactor-go/ctxext"
+	"github.com/asynkron/protoactor-go/ctxext"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -106,8 +106,17 @@ func (m *mockContext) Forward(pid *actor.PID) {
 	m.Called()
 }
 
-func (m *mockContext) ReenterAfter(f *actor.Future, cont func(res interface{}, err error)) {
+func (m *mockContext) ReenterAfter(f actor.Future, cont func(res interface{}, err error)) {
 	m.Called(f, cont)
+}
+
+func (m *mockContext) Capture() *actor.CapturedContext {
+	args := m.Called()
+	return args.Get(0).(*actor.CapturedContext)
+}
+
+func (m *mockContext) Apply(captured *actor.CapturedContext) {
+	m.Called(captured)
 }
 
 //
@@ -152,12 +161,12 @@ func (m *mockContext) RequestWithCustomSender(pid *actor.PID, message interface{
 	p.SendUserMessage(pid, env)
 }
 
-func (m *mockContext) RequestFuture(pid *actor.PID, message interface{}, timeout time.Duration) *actor.Future {
+func (m *mockContext) RequestFuture(pid *actor.PID, message interface{}, timeout time.Duration) actor.Future {
 	args := m.Called()
 	m.Called()
 	p, _ := system.ProcessRegistry.Get(pid)
 	p.SendUserMessage(pid, message)
-	return args.Get(0).(*actor.Future)
+	return args.Get(0).(actor.Future)
 }
 
 //
@@ -195,18 +204,18 @@ func (m *mockContext) Stop(pid *actor.PID) {
 	m.Called(pid)
 }
 
-func (m *mockContext) StopFuture(pid *actor.PID) *actor.Future {
+func (m *mockContext) StopFuture(pid *actor.PID) actor.Future {
 	args := m.Called(pid)
-	return args.Get(0).(*actor.Future)
+	return args.Get(0).(actor.Future)
 }
 
 func (m *mockContext) Poison(pid *actor.PID) {
 	m.Called(pid)
 }
 
-func (m *mockContext) PoisonFuture(pid *actor.PID) *actor.Future {
+func (m *mockContext) PoisonFuture(pid *actor.PID) actor.Future {
 	args := m.Called(pid)
-	return args.Get(0).(*actor.Future)
+	return args.Get(0).(actor.Future)
 }
 
 // mockProcess

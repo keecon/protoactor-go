@@ -6,20 +6,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/eventstream"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/eventstream"
 )
 
 type endpointLazy struct {
 	// valueFunc func() *endpoint
-	unloaded uint32
+	unloaded atomic.Bool
 	once     sync.Once
 	endpoint atomic.Value
 	manager  *endpointManager
 	address  string
 }
 
-func NewEndpointLazy(em *endpointManager, address string) *endpointLazy {
+// newEndpointLazy creates an endpoint that connects to the remote address on first use.
+func newEndpointLazy(em *endpointManager, address string) *endpointLazy {
 	return &endpointLazy{
 		manager: em,
 		address: address,
@@ -27,9 +28,14 @@ func NewEndpointLazy(em *endpointManager, address string) *endpointLazy {
 }
 
 func (el *endpointLazy) connect() {
+	el.manager.remote.actorSystem.Logger().Debug("connecting to remote address", slog.String("address", el.address))
 	em := el.manager
 	system := em.remote.actorSystem
-	rst, _ := system.Root.RequestFuture(em.endpointSupervisor, el.address, -1).Result()
+	rst, err := system.Root.RequestFuture(em.endpointSupervisor, el.address, -1).Result()
+	if err != nil {
+		system.Logger().Error("failed to connect to remote address", slog.String("address", el.address), slog.Any("error", err))
+		return
+	}
 	ep := rst.(*endpoint)
 	el.Set(ep)
 }
@@ -40,8 +46,8 @@ func (el *endpointLazy) Set(ep *endpoint) {
 
 func (el *endpointLazy) Get() *endpoint {
 	el.once.Do(el.connect)
-	ep := el.endpoint.Load()
-	return ep.(*endpoint)
+	ep, _ := el.endpoint.Load().(*endpoint)
+	return ep
 }
 
 type endpoint struct {
@@ -59,7 +65,7 @@ type endpointManager struct {
 	endpointSub               *eventstream.Subscription
 	endpointSupervisor        *actor.PID
 	activator                 *actor.PID
-	stopped                   bool
+	stopped                   atomic.Bool
 	endpointReaderConnections *sync.Map
 }
 
@@ -67,7 +73,6 @@ func newEndpointManager(r *Remote) *endpointManager {
 	return &endpointManager{
 		connections:               &sync.Map{},
 		remote:                    r,
-		stopped:                   false,
 		endpointReaderConnections: &sync.Map{},
 	}
 }
@@ -101,7 +106,7 @@ func (em *endpointManager) waiting(timeout time.Duration) error {
 }
 
 func (em *endpointManager) stop() {
-	em.stopped = true
+	em.stopped.Store(true)
 	r := em.remote
 	r.actorSystem.EventStream.Unsubscribe(em.endpointSub)
 	if err := em.stopActivator(); err != nil {
@@ -111,12 +116,10 @@ func (em *endpointManager) stop() {
 		em.remote.Logger().Error("stop endpoint supervisor failed", slog.Any("error", err))
 	}
 	em.endpointSub = nil
-	em.connections = nil
 	if em.endpointReaderConnections != nil {
-		em.endpointReaderConnections.Range(func(key interface{}, value interface{}) bool {
-			channel := value.(chan bool)
-			channel <- true
-			em.endpointReaderConnections.Delete(key)
+		em.endpointReaderConnections.Range(func(_ interface{}, value interface{}) bool {
+			connection := value.(*endpointReaderConnection)
+			connection.requestDisconnect()
 			return true
 		})
 	}
@@ -159,45 +162,76 @@ func (em *endpointManager) stopSupervisor() error {
 }
 
 func (em *endpointManager) endpointEvent(evn interface{}) {
+	if em.stopped.Load() {
+		return
+	}
+
 	switch msg := evn.(type) {
 	case *EndpointTerminatedEvent:
 		em.remote.Logger().Debug("EndpointManager received endpoint terminated event, removing endpoint", slog.Any("message", evn))
 		em.removeEndpoint(msg)
 	case *EndpointConnectedEvent:
 		endpoint := em.ensureConnected(msg.Address)
+		if endpoint == nil {
+			em.remote.Logger().Error("EndpointManager failed to handle endpoint connected event", slog.String("address", msg.Address))
+			return
+		}
 		em.remote.actorSystem.Root.Send(endpoint.watcher, msg)
 	}
 }
 
 func (em *endpointManager) remoteTerminate(msg *remoteTerminate) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
 	endpoint := em.ensureConnected(address)
+	if endpoint == nil {
+		terminated := &actor.Terminated{
+			Who: msg.Watchee,
+			Why: actor.TerminatedReason_Stopped,
+		}
+		if ref, ok := em.remote.actorSystem.ProcessRegistry.GetLocal(msg.Watcher.Id); ok {
+			ref.SendSystemMessage(msg.Watcher, terminated)
+		}
+		return
+	}
 	em.remote.actorSystem.Root.Send(endpoint.watcher, msg)
 }
 
 func (em *endpointManager) remoteWatch(msg *remoteWatch) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
 	endpoint := em.ensureConnected(address)
+	if endpoint == nil {
+		terminated := &actor.Terminated{
+			Who: msg.Watchee,
+			Why: actor.TerminatedReason_AddressTerminated,
+		}
+		if ref, ok := em.remote.actorSystem.ProcessRegistry.GetLocal(msg.Watcher.Id); ok {
+			ref.SendSystemMessage(msg.Watcher, terminated)
+		}
+		return
+	}
 	em.remote.actorSystem.Root.Send(endpoint.watcher, msg)
 }
 
 func (em *endpointManager) remoteUnwatch(msg *remoteUnwatch) {
-	if em.stopped {
+	if em.stopped.Load() {
 		return
 	}
 	address := msg.Watchee.Address
 	endpoint := em.ensureConnected(address)
+	if endpoint == nil {
+		return
+	}
 	em.remote.actorSystem.Root.Send(endpoint.watcher, msg)
 }
 
 func (em *endpointManager) remoteDeliver(msg *remoteDeliver) {
-	if em.stopped {
+	if em.stopped.Load() {
 		// send to deadletter
 		em.remote.actorSystem.EventStream.Publish(&actor.DeadLetterEvent{
 			PID:     msg.target,
@@ -208,17 +242,33 @@ func (em *endpointManager) remoteDeliver(msg *remoteDeliver) {
 	}
 	address := msg.target.Address
 	endpoint := em.ensureConnected(address)
+	if endpoint == nil {
+		em.remote.actorSystem.EventStream.Publish(&actor.DeadLetterEvent{
+			PID:     msg.target,
+			Message: msg.message,
+			Sender:  msg.sender,
+		})
+		return
+	}
 	em.remote.actorSystem.Root.Send(endpoint.writer, msg)
 }
 
 func (em *endpointManager) ensureConnected(address string) *endpoint {
+	if em.stopped.Load() {
+		return nil
+	}
+
 	e, ok := em.connections.Load(address)
 	if !ok {
-		el := NewEndpointLazy(em, address)
+		el := newEndpointLazy(em, address)
 		e, _ = em.connections.LoadOrStore(address, el)
 	}
 	el := e.(*endpointLazy)
-	return el.Get()
+	ep := el.Get()
+	if ep == nil {
+		em.connections.Delete(address)
+	}
+	return ep
 }
 
 // func (em *endpointManager) ensureConnected(address string) *endpoint {
@@ -247,10 +297,13 @@ func (em *endpointManager) removeEndpoint(msg *EndpointTerminatedEvent) {
 	v, ok := em.connections.Load(msg.Address)
 	if ok {
 		le := v.(*endpointLazy)
-		if atomic.CompareAndSwapUint32(&le.unloaded, 0, 1) {
+		if le.unloaded.CompareAndSwap(false, true) {
 			em.connections.Delete(msg.Address)
 			ep := le.Get()
-			em.remote.Logger().Debug("Sending EndpointTerminatedEvent to EndpointWatcher ans EndpointWriter", slog.String("address", msg.Address))
+			if ep == nil {
+				return
+			}
+			em.remote.Logger().Debug("Sending EndpointTerminatedEvent to EndpointWatcher and EndpointWriter", slog.String("address", msg.Address))
 			em.remote.actorSystem.Root.Send(ep.watcher, msg)
 			em.remote.actorSystem.Root.Send(ep.writer, msg)
 		}
@@ -274,13 +327,18 @@ func (state *endpointSupervisor) Receive(ctx actor.Context) {
 			writer:  state.spawnEndpointWriter(state.remote, address, ctx),
 			watcher: state.spawnEndpointWatcher(state.remote, address, ctx),
 		}
+		ctx.Logger().Debug("id", slog.String("ewr", e.writer.Id), slog.String("ewa", e.watcher.Id))
 		ctx.Respond(e)
 	}
 }
 
-func (state *endpointSupervisor) HandleFailure(actorSystem *actor.ActorSystem, supervisor actor.Supervisor, child *actor.PID, rs *actor.RestartStatistics, reason interface{}, message interface{}) {
+func (state *endpointSupervisor) HandleFailure(actorSystem *actor.ActorSystem, supervisor actor.Supervisor, child *actor.PID, _ *actor.RestartStatistics, reason interface{}, message interface{}) {
 	actorSystem.Logger().Debug("EndpointSupervisor handling failure", slog.Any("reason", reason), slog.Any("message", message))
-	supervisor.RestartChildren(child)
+	// use restart will cause a start loop, just stop it for now
+	// supervisor.RestartChildren(child)
+
+	// TODO: an extra stop is sent to the deadletter caused by EndpointTerminatedEvent
+	supervisor.StopChildren(child)
 }
 
 func (state *endpointSupervisor) spawnEndpointWriter(remote *Remote, address string, ctx actor.Context) *actor.PID {

@@ -19,6 +19,18 @@ type invoker struct {
 	wg    *sync.WaitGroup
 }
 
+type controlledDispatcher struct {
+	task chan func()
+}
+
+func (d *controlledDispatcher) Schedule(fn func()) {
+	d.task <- fn
+}
+
+func (*controlledDispatcher) Throughput() int {
+	return 300
+}
+
 func (i *invoker) InvokeSystemMessage(interface{}) {
 	i.count++
 	if i.count == i.max {
@@ -138,17 +150,19 @@ func TestMailboxUserMessageCount(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	p := UnboundedLockfree()
+	dispatcher := &controlledDispatcher{task: make(chan func(), 1)}
 	mi := &invoker{
 		max: max,
 		wg:  &wg,
 	}
 	q := p()
-	q.RegisterHandlers(mi, NewDefaultDispatcher(300))
+	q.RegisterHandlers(mi, dispatcher)
 
 	for j := 0; j < c; j++ {
 		q.PostUserMessage(fmt.Sprintf("%v", j))
 	}
 	assert.Equal(t, c, q.UserMessageCount())
+	(<-dispatcher.task)()
 	wg.Wait()
-	time.Sleep(100 * time.Millisecond)
+	assert.Zero(t, q.UserMessageCount())
 }

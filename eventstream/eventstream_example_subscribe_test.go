@@ -3,7 +3,7 @@ package eventstream_test
 import (
 	"fmt"
 
-	"github.com/keecon/protoactor-go/eventstream"
+	"github.com/asynkron/protoactor-go/eventstream"
 )
 
 // Subscribe subscribes to events

@@ -1,11 +1,12 @@
 package opentracing
 
 import (
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 	olog "github.com/opentracing/opentracing-go/log"
 	"log/slog"
 )
 
+// SpawnMiddleware propagates spans when spawning child actors.
 func SpawnMiddleware() actor.SpawnMiddleware {
 	return func(next actor.SpawnFunc) actor.SpawnFunc {
 		return func(actorSystem *actor.ActorSystem, id string, props *actor.Props, parentContext actor.SpawnerContext) (pid *actor.PID, e error) {

@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 type CancelFunc func()
@@ -28,7 +28,8 @@ func startTimer(delay, interval time.Duration, fn func()) CancelFunc {
 			runtime.Gosched()
 		}
 
-		if state == stateDone {
+		// use atomic load to ensure visibility of state updates from cancel function
+		if atomic.LoadInt32(&state) == stateDone {
 			return
 		}
 

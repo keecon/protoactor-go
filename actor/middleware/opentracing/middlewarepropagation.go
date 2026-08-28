@@ -1,10 +1,11 @@
 package opentracing
 
 import (
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/actor/middleware/propagator"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor/middleware/propagator"
 )
 
+// TracingMiddleware sets up spawn, sender, and receiver middlewares that propagate tracing spans.
 func TracingMiddleware() actor.SpawnMiddleware {
 	return propagator.New().
 		WithItselfForwarded().

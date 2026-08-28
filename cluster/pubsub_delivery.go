@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/remote"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/remote"
 )
 
 type PubSubMemberDeliveryActor struct {
@@ -30,7 +30,7 @@ func (p *PubSubMemberDeliveryActor) Receive(c actor.Context) {
 		invalidDeliveries := make([]*SubscriberDeliveryReport, 0, len(siList))
 
 		type futureWithIdentity struct {
-			future   *actor.Future
+			future   actor.Future
 			identity *SubscriberIdentity
 		}
 		futureList := make([]futureWithIdentity, 0, len(siList))
@@ -46,9 +46,9 @@ func (p *PubSubMemberDeliveryActor) Receive(c actor.Context) {
 			identityLog := func(err error) {
 				if p.shouldThrottle() == actor.Open {
 					if fWithIdentity.identity.GetPid() != nil {
-						c.Logger().Info("Pub-sub message delivered to PID", slog.String("pid", fWithIdentity.identity.GetPid().String()))
+						c.Logger().Error("Pub-sub message failed to deliver to PID", slog.String("pid", fWithIdentity.identity.GetPid().String()), slog.Any("error", err))
 					} else if fWithIdentity.identity.GetClusterIdentity() != nil {
-						c.Logger().Info("Pub-sub message delivered to cluster identity", slog.String("cluster identity", fWithIdentity.identity.GetClusterIdentity().String()))
+						c.Logger().Error("Pub-sub message failed to deliver to cluster identity", slog.String("cluster identity", fWithIdentity.identity.GetClusterIdentity().String()), slog.Any("error", err))
 					}
 				}
 			}
@@ -81,7 +81,7 @@ func (p *PubSubMemberDeliveryActor) Receive(c actor.Context) {
 }
 
 // DeliverBatch delivers PubSubAutoRespondBatch to SubscriberIdentity.
-func (p *PubSubMemberDeliveryActor) DeliverBatch(c actor.Context, batch *PubSubAutoRespondBatch, s *SubscriberIdentity) *actor.Future {
+func (p *PubSubMemberDeliveryActor) DeliverBatch(c actor.Context, batch *PubSubAutoRespondBatch, s *SubscriberIdentity) actor.Future {
 	if pid := s.GetPid(); pid != nil {
 		return p.DeliverToPid(c, batch, pid)
 	}
@@ -92,12 +92,12 @@ func (p *PubSubMemberDeliveryActor) DeliverBatch(c actor.Context, batch *PubSubA
 }
 
 // DeliverToPid delivers PubSubAutoRespondBatch to PID.
-func (p *PubSubMemberDeliveryActor) DeliverToPid(c actor.Context, batch *PubSubAutoRespondBatch, pid *actor.PID) *actor.Future {
+func (p *PubSubMemberDeliveryActor) DeliverToPid(c actor.Context, batch *PubSubAutoRespondBatch, pid *actor.PID) actor.Future {
 	return c.RequestFuture(pid, batch, p.subscriberTimeout)
 }
 
 // DeliverToClusterIdentity delivers PubSubAutoRespondBatch to ClusterIdentity.
-func (p *PubSubMemberDeliveryActor) DeliverToClusterIdentity(c actor.Context, batch *PubSubAutoRespondBatch, ci *ClusterIdentity) *actor.Future {
+func (p *PubSubMemberDeliveryActor) DeliverToClusterIdentity(c actor.Context, batch *PubSubAutoRespondBatch, ci *ClusterIdentity) actor.Future {
 	cluster := GetCluster(c.ActorSystem())
 	// deliver to virtual actor
 	// delivery should always be possible, since a virtual actor always exists

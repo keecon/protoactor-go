@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 var system = actor.NewActorSystem()

@@ -8,7 +8,6 @@ import (
 )
 
 // convenience type alias
-type GossipMemberState = GossipState_GossipMemberState
 
 func ensureEntryExists(memberState *GossipMemberState, key string) *GossipKeyValue {
 	value, ok := memberState.Values[key]
@@ -55,7 +54,7 @@ func setKey(state *GossipState, key string, value proto.Message, memberID string
 // merges the local and the incoming remote states into a new states slice and return it
 func mergeState(localState *GossipState, remoteState *GossipState) ([]*GossipUpdate, *GossipState, map[string]empty) {
 	// make a copy of the localState (we do not want to modify localState just yet)
-	mergedState := &GossipState{Members: make(map[string]*GossipState_GossipMemberState)}
+	mergedState := &GossipState{Members: make(map[string]*GossipMemberState)}
 	for id, member := range localState.Members {
 		mergedState.Members[id] = member
 	}

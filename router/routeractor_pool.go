@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 type poolRouterActor struct {
@@ -52,7 +52,7 @@ func (a *poolRouterActor) Receive(context actor.Context) {
 	case *BroadcastMessage:
 		msg := m.Message
 		sender := context.Sender()
-		a.state.GetRoutees().ForEach(func(i int, pid *actor.PID) {
+		a.state.GetRoutees().ForEach(func(_ int, pid *actor.PID) {
 			context.RequestWithCustomSender(pid, msg, sender)
 		})
 

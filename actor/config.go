@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Config holds configuration options for an ActorSystem.
 type Config struct {
 	DeadLetterThrottleInterval  time.Duration      // throttle deadletter logging after this interval
 	DeadLetterThrottleCount     int32              // throttle deadletter logging after this count
@@ -23,17 +24,20 @@ type Config struct {
 	DeveloperSupervisionLogging bool               // console log and promote supervision logs to Warning level
 	DiagnosticsSerializer       func(Actor) string // extract diagnostics from actor and return as string
 	MetricsProvider             metric.MeterProvider
-	LoggerFactory               func(system *ActorSystem) *slog.Logger
+	// MetricsEnabled toggles emission of Proto.Actor metrics.
+	MetricsEnabled bool
+	LoggerFactory  func(system *ActorSystem) *slog.Logger
 }
 
 func defaultConfig() *Config {
 	return &Config{
 		MetricsProvider:             nil,
+		MetricsEnabled:              false,
 		DeadLetterThrottleInterval:  1 * time.Second,
 		DeadLetterThrottleCount:     3,
 		DeadLetterRequestLogging:    true,
 		DeveloperSupervisionLogging: false,
-		DiagnosticsSerializer: func(actor Actor) string {
+		DiagnosticsSerializer: func(_ Actor) string {
 			return ""
 		},
 		LoggerFactory: func(system *ActorSystem) *slog.Logger {
@@ -52,10 +56,8 @@ func defaultConfig() *Config {
 func defaultPrometheusProvider(port int) metric.MeterProvider {
 	exporter, err := prometheus.New()
 	if err != nil {
-		err = fmt.Errorf("failed to initialize prometheus exporter: %w", err)
-		//TODO: fix
-		//plog.Error(err.Error(), log.Error(err))
-
+		// TODO: handle initialization error appropriately
+		// plog.Error("failed to initialize prometheus exporter", slog.Any("error", err))
 		return nil
 	}
 
@@ -75,6 +77,7 @@ func defaultPrometheusProvider(port int) metric.MeterProvider {
 	return provider
 }
 
+// NewConfig returns a configuration with default values.
 func NewConfig() *Config {
 	return defaultConfig()
 }

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/cluster"
-	"github.com/keecon/protoactor-go/remote"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/remote"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -43,7 +43,7 @@ func TestStartMember(t *testing.T) {
 	a := assert.New(t)
 
 	p, _ := New()
-	defer p.Shutdown(true)
+	defer func() { _ = p.Shutdown(true) }()
 
 	c := newClusterForTest("mycluster", "127.0.0.1:8000", p)
 	eventstream := c.ActorSystem.EventStream
@@ -67,7 +67,7 @@ func TestStartMember(t *testing.T) {
 		members := []*cluster.Member{
 			{
 				// Id:    "mycluster@127.0.0.1:8000",
-				Id:    fmt.Sprintf("%s", c.ActorSystem.ID),
+				Id:    c.ActorSystem.ID,
 				Host:  "127.0.0.1",
 				Port:  8000,
 				Kinds: []string{},
@@ -101,32 +101,43 @@ func TestRegisterMultipleMembers(t *testing.T) {
 	}
 
 	p, _ := New()
-	defer p.Shutdown(true)
+	defer func() { _ = p.Shutdown(true) }()
 	for _, member := range members {
 		addr := fmt.Sprintf("%s:%d", member.host, member.port)
 		_p, _ := New()
 		c := newClusterForTest(member.cluster, addr, _p)
-		err := p.StartMember(c)
+		err := _p.StartMember(c)
 		a.NoError(err)
 		t.Cleanup(func() {
-			_p.Shutdown(true)
+			_ = _p.Shutdown(true)
 		})
 	}
 
-	entries, _, err := p.client.Health().Service("mycluster2", "", true, nil)
-	a.NoError(err)
-
-	found := false
-	for _, entry := range entries {
-		found = false
-		for _, member := range members {
-			if entry.Service.Port == member.port {
-				found = true
+	expectedPorts := make(map[int]struct{}, len(members))
+	for _, member := range members {
+		expectedPorts[member.port] = struct{}{}
+	}
+	var queryErr error
+	actualPorts := make(map[int]struct{})
+	a.Eventually(func() bool {
+		entries, _, err := p.client.Health().Service("mycluster2", "", true, nil)
+		queryErr = err
+		actualPorts = make(map[int]struct{}, len(entries))
+		for _, entry := range entries {
+			actualPorts[entry.Service.Port] = struct{}{}
+		}
+		if len(actualPorts) != len(expectedPorts) {
+			return false
+		}
+		for port := range expectedPorts {
+			if _, ok := actualPorts[port]; !ok {
+				return false
 			}
 		}
-		a.Truef(found, "Member port not found - ExtensionID:%v Address: %v:%v",
-			entry.Service.ID, entry.Service.Address, entry.Service.Port)
-	}
+		return true
+	}, 5*time.Second, 10*time.Millisecond)
+	a.NoError(queryErr)
+	a.Equal(expectedPorts, actualPorts)
 }
 
 func TestUpdateTTL_DoesNotReregisterAfterShutdown(t *testing.T) {

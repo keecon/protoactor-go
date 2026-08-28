@@ -2,11 +2,9 @@ package actor
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strings"
 
-	"github.com/keecon/protoactor-go/metrics"
+	"github.com/asynkron/protoactor-go/metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
@@ -30,9 +28,9 @@ func NewDeadLetter(actorSystem *ActorSystem) *deadLetterProcess {
 	_ = actorSystem.EventStream.Subscribe(func(msg interface{}) {
 		if deadLetter, ok := msg.(*DeadLetterEvent); ok {
 
-			// send back a response instead of timeout.
+			// send back a response instead of timeout, including the target PID.
 			if deadLetter.Sender != nil {
-				actorSystem.Root.Send(deadLetter.Sender, &DeadLetterResponse{})
+				actorSystem.Root.Send(deadLetter.Sender, &DeadLetterResponse{Target: deadLetter.PID})
 			}
 
 			// bail out if sender is set and deadletter request logging is false
@@ -42,7 +40,7 @@ func NewDeadLetter(actorSystem *ActorSystem) *deadLetterProcess {
 
 			if _, isIgnoreDeadLetter := deadLetter.Message.(IgnoreDeadLetterLogging); !isIgnoreDeadLetter {
 				if shouldThrottle() == Open {
-					actorSystem.Logger().Debug("[DeadLetter]", slog.Any("pid", deadLetter.PID), slog.Any("message", deadLetter.Message), slog.Any("sender", deadLetter.Sender))
+					actorSystem.Logger().Info("[DeadLetter]", slog.Any("pid", deadLetter.PID), slog.Any("message", deadLetter.Message), slog.Any("sender", deadLetter.Sender))
 				}
 			}
 		}
@@ -53,9 +51,9 @@ func NewDeadLetter(actorSystem *ActorSystem) *deadLetterProcess {
 	// This can happen if one actor tries to Watch a PID, while another thread sends a Stop message.
 	actorSystem.EventStream.Subscribe(func(msg interface{}) {
 		if deadLetter, ok := msg.(*DeadLetterEvent); ok {
-			if m, ok := deadLetter.Message.(*Watch); ok {
+			if watchMsg, ok := deadLetter.Message.(*Watch); ok {
 				// we know that this is a local actor since we get it on our own event stream, thus the address is not terminated
-				m.Watcher.sendSystemMessage(actorSystem, &Terminated{
+				watchMsg.Watcher.sendSystemMessage(actorSystem, &Terminated{
 					Who: deadLetter.PID,
 					Why: TerminatedReason_NotFound,
 				})
@@ -74,19 +72,23 @@ type DeadLetterEvent struct {
 }
 
 func (dp *deadLetterProcess) SendUserMessage(pid *PID, message interface{}) {
-	metricsSystem, ok := dp.actorSystem.Extensions.Get(extensionId).(*Metrics)
-	if ok && metricsSystem.enabled {
-		ctx := context.Background()
-		if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
-			labels := []attribute.KeyValue{
-				attribute.String("address", dp.actorSystem.Address()),
-				attribute.String("messagetype", strings.Replace(fmt.Sprintf("%T", message), "*", "", 1)),
-			}
+	// unwrap the incoming envelope to access the actual message and sender
+	_, msg, sender := UnwrapEnvelope(message)
 
-			instruments.DeadLetterCount.Add(ctx, 1, metric.WithAttributes(labels...))
+	if dp.actorSystem.Config.MetricsEnabled {
+		metricsSystem, ok := dp.actorSystem.Extensions.Get(extensionID).(*Metrics)
+		if ok && metricsSystem.Enabled() {
+			ctx := context.Background()
+			if instruments := metricsSystem.metrics.Get(metrics.InternalActorMetrics); instruments != nil {
+				labels := append(SystemLabels(dp.actorSystem),
+					attribute.String("messagetype", MessageName(msg)),
+				)
+
+				instruments.DeadLetterCount.Add(ctx, 1, metric.WithAttributes(labels...))
+			}
 		}
 	}
-	_, msg, sender := UnwrapEnvelope(message)
+
 	dp.actorSystem.EventStream.Publish(&DeadLetterEvent{
 		PID:     pid,
 		Message: msg,

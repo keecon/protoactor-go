@@ -1,3 +1,4 @@
+// Package etcd provides an etcd-based cluster provider.
 package etcd
 
 import (
@@ -5,34 +6,54 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/keecon/protoactor-go/cluster"
+	"github.com/asynkron/protoactor-go/cluster"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// Provider uses etcd for cluster membership discovery.
 type Provider struct {
-	leaseID       clientv3.LeaseID
-	cluster       *cluster.Cluster
-	baseKey       string
-	clusterName   string
-	deregistered  bool
-	shutdown      bool
-	self          *Node
-	members       map[string]*Node // all, contains self.
-	clusterError  error
-	client        *clientv3.Client
-	cancelWatch   func()
-	cancelWatchCh chan bool
-	keepAliveTTL  time.Duration
-	retryInterval time.Duration
-	revision      uint64
+	leaseID         clientv3.LeaseID
+	cluster         *cluster.Cluster
+	baseKey         string
+	clusterName     string
+	deregistered    bool
+	shutdown        atomic.Bool
+	lifecycleMu     sync.Mutex
+	leadershipMu    sync.Mutex
+	starts          sync.WaitGroup
+	done            chan struct{}
+	background      sync.WaitGroup
+	topologyOnce    sync.Once
+	topologyEvents  chan topologyEvent
+	self            *Node
+	members         map[string]*Node // all, contains self.
+	clusterError    error
+	client          *clientv3.Client
+	cancelWatch     func()
+	cancelKeepAlive context.CancelFunc
+	keepAliveTTL    time.Duration
+	retryInterval   time.Duration
+	revision        uint64
 	// deregisterCritical time.Duration
+	schedulers          []*SingletonScheduler
+	role                RoleType
+	roleChangedChan     chan RoleType
+	roleChangedListener RoleChangedListener
 }
 
+type topologyEvent struct {
+	members []*cluster.Member
+	done    chan struct{}
+}
+
+// New creates a provider with default etcd configuration.
 func New() (*Provider, error) {
 	return NewWithConfig("/protoactor", clientv3.Config{
 		Endpoints:   []string{"127.0.0.1:2379"},
@@ -40,18 +61,37 @@ func New() (*Provider, error) {
 	})
 }
 
-func NewWithConfig(baseKey string, cfg clientv3.Config) (*Provider, error) {
-	client, err := clientv3.New(cfg)
-	if err != nil {
-		return nil, err
+// NewWithConfig creates a provider using the specified etcd configuration.
+func NewWithConfig(baseKey string, cfg clientv3.Config, opts ...Option) (*Provider, error) {
+	c := defaultConfig()
+	WithBaseKey(baseKey)(c)
+	WithEtcdConfig(cfg)(c)
+	for _, opt := range opts {
+		opt(c)
+	}
+	if c.KeepAliveTTL <= 0 {
+		c.KeepAliveTTL = defaultKeepAliveTTL
+	}
+	if c.RetryInterval <= 0 {
+		c.RetryInterval = defaultRetryInterval
+	}
+	if c.client == nil {
+		var err error
+		if c.client, err = clientv3.New(c.cfg); err != nil {
+			return nil, err
+		}
 	}
 	p := &Provider{
-		client:        client,
-		keepAliveTTL:  3 * time.Second,
-		retryInterval: 1 * time.Second,
-		baseKey:       baseKey,
-		members:       map[string]*Node{},
-		cancelWatchCh: make(chan bool),
+		client:              c.client,
+		keepAliveTTL:        c.KeepAliveTTL,
+		retryInterval:       c.RetryInterval,
+		baseKey:             c.BaseKey,
+		members:             map[string]*Node{},
+		done:                make(chan struct{}),
+		topologyEvents:      make(chan topologyEvent),
+		role:                Follower,
+		roleChangedChan:     make(chan RoleType, 1),
+		roleChangedListener: c.RoleChanged,
 	}
 	return p, nil
 }
@@ -74,8 +114,33 @@ func (p *Provider) init(c *cluster.Cluster) error {
 	return nil
 }
 
+func (p *Provider) beginStart() error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if p.shutdown.Load() {
+		return fmt.Errorf("etcd provider is shutting down")
+	}
+	p.starts.Add(1)
+	return nil
+}
+
+// StartMember registers the node in etcd and starts watching for updates.
 func (p *Provider) StartMember(c *cluster.Cluster) error {
+	if err := p.beginStart(); err != nil {
+		return err
+	}
+	startComplete := false
+	defer func() {
+		if !startComplete {
+			p.starts.Done()
+		}
+	}()
+
 	if err := p.init(c); err != nil {
+		return err
+	}
+	// register self
+	if err := p.registerService(); err != nil {
 		return err
 	}
 
@@ -86,19 +151,33 @@ func (p *Provider) StartMember(c *cluster.Cluster) error {
 	}
 	// initialize members
 	p.updateNodesWithSelf(nodes)
-	p.publishClusterTopologyEvent()
-	p.startWatching()
-
-	// register self
-	if err := p.registerService(); err != nil {
-		return err
-	}
-	ctx := context.TODO()
+	p.startTopologyEventLoop()
+	p.startRoleChangedNotifyLoop()
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancelKeepAlive = cancel
 	p.startKeepAlive(ctx)
+	watchReady := make(chan struct{})
+	p.startWatching(watchReady)
+	p.starts.Done()
+	startComplete = true
+	p.publishClusterTopologyEventAndWait()
+	p.updateLeadership()
+	close(watchReady)
 	return nil
 }
 
+// StartClient initializes the provider without registering the node.
 func (p *Provider) StartClient(c *cluster.Cluster) error {
+	if err := p.beginStart(); err != nil {
+		return err
+	}
+	startComplete := false
+	defer func() {
+		if !startComplete {
+			p.starts.Done()
+		}
+	}()
+
 	if err := p.init(c); err != nil {
 		return err
 	}
@@ -108,24 +187,42 @@ func (p *Provider) StartClient(c *cluster.Cluster) error {
 	}
 	// initialize members
 	p.updateNodes(nodes)
-	p.publishClusterTopologyEvent()
-	p.startWatching()
+	p.startTopologyEventLoop()
+	watchReady := make(chan struct{})
+	p.startWatching(watchReady)
+	p.starts.Done()
+	startComplete = true
+	p.publishClusterTopologyEventAndWait()
+	close(watchReady)
 	return nil
 }
 
-func (p *Provider) Shutdown(graceful bool) error {
-	p.shutdown = true
-	if !p.deregistered {
+// Shutdown deregisters the node and stops background tasks.
+func (p *Provider) Shutdown(_ bool) error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	if !p.shutdown.Swap(true) {
+		p.starts.Wait()
+		close(p.done)
+		if p.cancelKeepAlive != nil {
+			p.cancelKeepAlive()
+			p.cancelKeepAlive = nil
+		}
+		if p.cancelWatch != nil {
+			p.cancelWatch()
+			p.cancelWatch = nil
+		}
+		p.background.Wait()
+	}
+
+	if !p.deregistered && p.self != nil {
+		p.updateLeadership()
 		err := p.deregisterService()
 		if err != nil {
 			p.cluster.Logger().Error("deregisterMember", slog.Any("error", err))
 			return err
 		}
 		p.deregistered = true
-	}
-	if p.cancelWatch != nil {
-		p.cancelWatch()
-		p.cancelWatch = nil
 	}
 	return nil
 }
@@ -141,21 +238,21 @@ func (p *Provider) keepAliveForever(ctx context.Context) error {
 	}
 	fullKey := p.getEtcdKey()
 
-	var leaseId clientv3.LeaseID
-	leaseId, err = p.newLeaseID()
+	var leaseID clientv3.LeaseID
+	leaseID, err = p.newLeaseID(ctx)
 	if err != nil {
 		return err
 	}
-	p.setLeaseID(leaseId)
+	p.setLeaseID(leaseID)
 
-	if leaseId <= 0 {
-		return fmt.Errorf("grant lease failed. leaseId=%d", leaseId)
+	if leaseID <= 0 {
+		return fmt.Errorf("grant lease failed. leaseID=%d", leaseID)
 	}
-	_, err = p.client.Put(context.TODO(), fullKey, string(data), clientv3.WithLease(leaseId))
+	_, err = p.client.Put(ctx, fullKey, string(data), clientv3.WithLease(leaseID))
 	if err != nil {
 		return err
 	}
-	kaRespCh, err := p.client.KeepAlive(context.TODO(), leaseId)
+	kaRespCh, err := p.client.KeepAlive(ctx, leaseID)
 	if err != nil {
 		return err
 	}
@@ -165,7 +262,7 @@ func (p *Provider) keepAliveForever(ctx context.Context) error {
 			return fmt.Errorf("keep alive failed. resp=%s", resp.String())
 		}
 		// plog.Infof("keep alive %s ttl=%d", p.getID(), resp.TTL)
-		if p.shutdown {
+		if p.shutdown.Load() {
 			return nil
 		}
 	}
@@ -173,8 +270,10 @@ func (p *Provider) keepAliveForever(ctx context.Context) error {
 }
 
 func (p *Provider) startKeepAlive(ctx context.Context) {
+	p.background.Add(1)
 	go func() {
-		for !p.shutdown {
+		defer p.background.Done()
+		for !p.shutdown.Load() {
 			if err := ctx.Err(); err != nil {
 				p.cluster.Logger().Info("Keepalive was stopped.", slog.Any("error", err))
 				return
@@ -183,7 +282,13 @@ func (p *Provider) startKeepAlive(ctx context.Context) {
 			if err := p.keepAliveForever(ctx); err != nil {
 				p.cluster.Logger().Info("Failure refreshing service TTL. ReTrying...", slog.Duration("after", p.retryInterval), slog.Any("error", err))
 			}
-			time.Sleep(p.retryInterval)
+			timer := time.NewTimer(p.retryInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 		}
 	}()
 }
@@ -205,16 +310,16 @@ func (p *Provider) registerService() error {
 	if err != nil {
 		return err
 	}
-	leaseId := p.getLeaseID()
-	if leaseId <= 0 {
-		_leaseId, err := p.newLeaseID()
+	leaseID := p.getLeaseID()
+	if leaseID <= 0 {
+		_leaseID, err := p.newLeaseID(context.TODO())
 		if err != nil {
 			return err
 		}
-		leaseId = _leaseId
-		p.setLeaseID(leaseId)
+		leaseID = _leaseID
+		p.setLeaseID(leaseID)
 	}
-	_, err = p.client.Put(context.TODO(), fullKey, string(data), clientv3.WithLease(leaseId))
+	_, err = p.client.Put(context.TODO(), fullKey, string(data), clientv3.WithLease(leaseID))
 	if err != nil {
 		return err
 	}
@@ -231,7 +336,7 @@ func (p *Provider) handleWatchResponse(resp clientv3.WatchResponse) map[string]*
 	changes := map[string]*Node{}
 	for _, ev := range resp.Events {
 		key := string(ev.Kv.Key)
-		nodeId, err := getNodeID(key, "/")
+		nodeID, err := getNodeID(key, "/")
 		if err != nil {
 			p.cluster.Logger().Error("Invalid member.", slog.String("key", key))
 			continue
@@ -248,27 +353,35 @@ func (p *Provider) handleWatchResponse(resp clientv3.WatchResponse) map[string]*
 				p.cluster.Logger().Debug("Skip self.", slog.String("key", key))
 				continue
 			}
-			if _, ok := p.members[nodeId]; ok {
+			if _, ok := p.members[nodeID]; ok {
 				p.cluster.Logger().Debug("Update member.", slog.String("key", key))
 			} else {
 				p.cluster.Logger().Debug("New member.", slog.String("key", key))
 			}
-			changes[nodeId] = node
+			changes[nodeID] = node
+			node.SetMeta(metaKeySeq, nodeID)
+			node.SetMeta(metaKeySeq, fmt.Sprintf("%d", ev.Kv.Lease))
 		case clientv3.EventTypeDelete:
-			node, ok := p.members[nodeId]
+			node, ok := p.members[nodeID]
 			if !ok {
+				continue
+			}
+			if p.self.Equal(node) {
+				p.cluster.Logger().Debug("Skip self.", slog.String("key", key))
 				continue
 			}
 			p.cluster.Logger().Debug("Delete member.", slog.String("key", key))
 			cloned := *node
 			cloned.SetAlive(false)
-			changes[nodeId] = &cloned
+			changes[nodeID] = &cloned
+			node.SetMeta(metaKeySeq, nodeID)
+			node.SetMeta(metaKeySeq, fmt.Sprintf("%d", ev.Kv.Lease))
 		default:
 			p.cluster.Logger().Error("Invalid etcd event.type.", slog.String("key", key),
 				slog.String("type", ev.Type.String()))
 		}
 	}
-	p.revision = uint64(resp.Header.GetRevision())
+	atomic.StoreUint64(&p.revision, uint64(resp.Header.GetRevision()))
 	return changes
 }
 
@@ -290,17 +403,32 @@ func (p *Provider) _keepWatching(stream clientv3.WatchChan) error {
 		}
 		nodesChanges := p.handleWatchResponse(resp)
 		p.updateNodesWithChanges(nodesChanges)
+		p.updateLeadership()
 		p.publishClusterTopologyEvent()
 	}
 	return nil
 }
 
-func (p *Provider) startWatching() {
+func (p *Provider) startWatching(ready <-chan struct{}) {
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
 	p.cancelWatch = cancel
+	p.background.Add(1)
 	go func() {
-		for !p.shutdown {
+		defer p.background.Done()
+		select {
+		case <-ready:
+		case <-p.done:
+			return
+		}
+		//recover
+		defer func() {
+			if r := recover(); r != nil {
+				p.cluster.Logger().Error("Recovered from panic in keepWatching.", slog.Any("error", r))
+				p.clusterError = fmt.Errorf("keepWatching panic: %v", r)
+			}
+		}()
+		for !p.shutdown.Load() {
 			if err := p.keepWatching(ctx); err != nil {
 				p.cluster.Logger().Error("Failed to keepWatching.", slog.Any("error", err))
 				p.clusterError = err
@@ -312,10 +440,6 @@ func (p *Provider) startWatching() {
 // GetHealthStatus returns an error if the cluster health status has problems
 func (p *Provider) GetHealthStatus() error {
 	return p.clusterError
-}
-
-func newContext(timeout time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.TODO(), timeout)
 }
 
 func (p *Provider) buildKey(names ...string) string {
@@ -335,8 +459,12 @@ func (p *Provider) fetchNodes() ([]*Node, error) {
 			return nil, err
 		}
 		nodes = append(nodes, &n)
+		if v.Lease > 0 {
+			n.SetMeta(metaKeySeq, fmt.Sprintf("%d", v.Lease))
+			n.SetMeta(metaKeyID, n.ID)
+		}
 	}
-	p.revision = uint64(resp.Header.GetRevision())
+	atomic.StoreUint64(&p.revision, uint64(resp.Header.GetRevision()))
 	// plog.Debug("fetch nodes",
 	// 	log.Uint64("raft term", resp.Header.GetRaftTerm()),
 	// 	log.Int64("revision", resp.Header.GetRevision()))
@@ -355,10 +483,10 @@ func (p *Provider) updateNodesWithSelf(members []*Node) {
 }
 
 func (p *Provider) updateNodesWithChanges(changes map[string]*Node) {
-	for memberId, member := range changes {
-		p.members[memberId] = member
+	for memberID, member := range changes {
+		p.members[memberID] = member
 		if !member.IsAlive() {
-			delete(p.members, memberId)
+			delete(p.members, memberID)
 		}
 	}
 }
@@ -375,6 +503,56 @@ func (p *Provider) createClusterTopologyEvent() []*cluster.Member {
 
 func (p *Provider) publishClusterTopologyEvent() {
 	res := p.createClusterTopologyEvent()
+	p.enqueueClusterTopologyEvent(res, false)
+}
+
+func (p *Provider) publishClusterTopologyEventAndWait() {
+	res := p.createClusterTopologyEvent()
+	p.enqueueClusterTopologyEvent(res, true)
+}
+
+func (p *Provider) enqueueClusterTopologyEvent(members []*cluster.Member, wait bool) {
+	var completed chan struct{}
+	if wait {
+		completed = make(chan struct{})
+	}
+	event := topologyEvent{members: members, done: completed}
+	select {
+	case <-p.done:
+		return
+	case p.topologyEvents <- event:
+	}
+	if completed != nil {
+		<-completed
+	}
+}
+
+func (p *Provider) startTopologyEventLoop() {
+	p.topologyOnce.Do(func() {
+		go func() {
+			for {
+				select {
+				case <-p.done:
+					return
+				default:
+				}
+				select {
+				case <-p.done:
+					return
+				case event := <-p.topologyEvents:
+					if !p.shutdown.Load() {
+						p.publishClusterTopologyMembers(event.members)
+					}
+					if event.done != nil {
+						close(event.done)
+					}
+				}
+			}
+		}()
+	})
+}
+
+func (p *Provider) publishClusterTopologyMembers(res []*cluster.Member) {
 	p.cluster.Logger().Info("Update cluster.", slog.Int("members", len(res)))
 	// for _, m := range res {
 	// 	plog.Info("\t", log.Object("member", m))
@@ -389,11 +567,15 @@ func (p *Provider) getLeaseID() clientv3.LeaseID {
 
 func (p *Provider) setLeaseID(leaseID clientv3.LeaseID) {
 	atomic.StoreInt64((*int64)(&p.leaseID), (int64)(leaseID))
+	p.self.SetMeta(metaKeySeq, fmt.Sprintf("%d", leaseID))
 }
 
-func (p *Provider) newLeaseID() (clientv3.LeaseID, error) {
-	ttlSecs := int64(p.keepAliveTTL / time.Second)
-	resp, err := p.client.Grant(context.TODO(), ttlSecs)
+func (p *Provider) newLeaseID(ctx context.Context) (clientv3.LeaseID, error) {
+	ttlSecs := int64((p.keepAliveTTL + time.Second - 1) / time.Second)
+	if ttlSecs < 1 {
+		ttlSecs = 1
+	}
+	resp, err := p.client.Grant(ctx, ttlSecs)
 	if err != nil {
 		return 0, err
 	}
@@ -412,4 +594,102 @@ func splitHostPort(addr string) (host string, port int, err error) {
 		port, err = strconv.Atoi(p)
 	}
 	return
+}
+
+// RegisterSingletonScheduler adds a singleton scheduler to be notified on role changes.
+func (p *Provider) RegisterSingletonScheduler(scheduler *SingletonScheduler) {
+	p.schedulers = append(p.schedulers, scheduler)
+}
+
+// 修改现有的角色变化处理逻辑
+func (p *Provider) updateLeadership() {
+	p.leadershipMu.Lock()
+	defer p.leadershipMu.Unlock()
+
+	role := Follower
+	if !p.shutdown.Load() {
+		ns, err := p.fetchNodes()
+		if err != nil {
+			p.cluster.Logger().Error("Failed to fetch nodes in updateLeadership.", slog.Any("error", err))
+		}
+
+		if p.isLeaderOf(ns) {
+			role = Leader
+		}
+	}
+	if role != p.role {
+		p.cluster.Logger().Info("Role changed.", slog.String("from", p.role.String()), slog.String("to", role.String()))
+		p.role = role
+		select {
+		case p.roleChangedChan <- role:
+		case <-p.done:
+		}
+
+		// 通知所有注册的 SingletonScheduler
+		for _, scheduler := range p.schedulers {
+			safeRun(p.cluster.Logger(), func() {
+				scheduler.OnRoleChanged(role)
+			})
+		}
+	}
+}
+
+func safeRun(logger *slog.Logger, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warn("OnRoleChanged.", slog.Any("error", fmt.Errorf("%v\n%s", r, string(getRunTimeStack()))))
+		}
+	}()
+	fn()
+}
+
+func getRunTimeStack() []byte {
+	const size = 64 << 10
+	buf := make([]byte, size)
+	return buf[:runtime.Stack(buf, false)]
+}
+
+func (p *Provider) isLeaderOf(ns []*Node) bool {
+	if ns == nil {
+		return false
+	}
+	if len(ns) == 1 && p.self != nil && ns[0].ID == p.self.ID {
+		return true
+	}
+	var minSeq int
+	for _, node := range ns {
+		if !node.IsAlive() {
+			continue
+		}
+		if seq := node.GetSeq(); (seq > 0 && seq < minSeq) || minSeq == 0 {
+			minSeq = seq
+		}
+	}
+	//for _, node := range ns {
+	//	if p.self != nil && node.ID == p.self.ID {
+	//		return minSeq > 0 && minSeq == p.self.GetSeq()
+	//	}
+	//}
+	if minSeq <= 0 { // 没有在线actor
+		return true
+	}
+	if p.self != nil && int(p.getLeaseID()) <= minSeq {
+		return true
+	}
+	return false
+}
+
+func (p *Provider) startRoleChangedNotifyLoop() {
+	go func() {
+		for {
+			select {
+			case role := <-p.roleChangedChan:
+				if lis := p.roleChangedListener; lis != nil {
+					safeRun(p.cluster.Logger(), func() { lis.OnRoleChanged(role) })
+				}
+			case <-p.done:
+				return
+			}
+		}
+	}()
 }

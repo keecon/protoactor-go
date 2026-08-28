@@ -3,7 +3,7 @@ package router
 import (
 	"sync"
 
-	"github.com/keecon/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/actor"
 )
 
 type RouterType int
@@ -15,7 +15,7 @@ const (
 
 type RouterConfig interface {
 	RouterType() RouterType
-	OnStarted(context actor.Context, props *actor.Props, state State)
+	OnStarted(actor.Context, *actor.Props, State)
 	CreateRouterState() State
 }
 

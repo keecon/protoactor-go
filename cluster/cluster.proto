@@ -1,6 +1,6 @@
 syntax = "proto3";
 package cluster;
-option go_package = "/github.com/keecon/protoactor-go/cluster";
+option go_package = "/github.com/asynkron/protoactor-go/cluster";
 import "actor.proto";
 
 //request response call from Identity actor sent to each member
@@ -133,10 +133,3 @@ message ActorStatistics {
   map<string, int64> actor_count = 1;
 }
 
-
-
-
-//keys to implement initially
-//topology - value is repeated members, this can replace ClusterTopologyNotification, as it would be the same, but better
-//heartbeat - value is unit, or sender timestamp?
-//leader - value is leader member id

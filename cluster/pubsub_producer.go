@@ -1,3 +1,4 @@
+// Package cluster provides clustering primitives such as a batching pub/sub producer.
 package cluster
 
 import (
@@ -6,14 +7,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/keecon/protoactor-go/actor"
-	"github.com/keecon/protoactor-go/internal/queue/mpsc"
+	"github.com/asynkron/protoactor-go/actor"
+	"github.com/asynkron/protoactor-go/internal/queue/mpsc"
 	"golang.org/x/net/context"
+	"google.golang.org/protobuf/proto"
 )
 
 // PublishingErrorHandler decides what to do with a publishing error in BatchingProducer
 type PublishingErrorHandler func(retries int, e error, batch *PubSubBatch) *PublishingErrorDecision
 
+// BatchingProducerConfig configures BatchingProducer behavior.
 type BatchingProducerConfig struct {
 	// Maximum size of the published batch. Default: 2000.
 	BatchSize int
@@ -44,7 +47,7 @@ func newBatchingProducerConfig(logger *slog.Logger, opts ...BatchingProducerConf
 	config := &BatchingProducerConfig{
 		BatchSize:      2000,
 		PublishTimeout: 5 * time.Second,
-		OnPublishingError: func(retries int, e error, batch *PubSubBatch) *PublishingErrorDecision {
+		OnPublishingError: func(_ int, _ error, _ *PubSubBatch) *PublishingErrorDecision {
 			return FailBatchAndStop
 		},
 		LogThrottle: actor.NewThrottleWithLogger(logger, 10, time.Second, func(logger *slog.Logger, i int32) {
@@ -59,6 +62,7 @@ func newBatchingProducerConfig(logger *slog.Logger, opts ...BatchingProducerConf
 	return config
 }
 
+// BatchingProducer publishes messages in batches to reduce network overhead.
 type BatchingProducer struct {
 	config           *BatchingProducerConfig
 	topic            string
@@ -69,6 +73,7 @@ type BatchingProducer struct {
 	msgLeft          uint32
 }
 
+// NewBatchingProducer creates a producer that batches messages before publishing.
 func NewBatchingProducer(publisher Publisher, topic string, opts ...BatchingProducerConfigOption) *BatchingProducer {
 	config := newBatchingProducerConfig(publisher.Logger(), opts...)
 	p := &BatchingProducer{
@@ -98,13 +103,13 @@ type pubsubBatchWithReceipts struct {
 // newPubSubBatchWithReceipts creates a new pubsubBatchWithReceipts
 func newPubSubBatchWithReceipts() *pubsubBatchWithReceipts {
 	return &pubsubBatchWithReceipts{
-		batch:  &PubSubBatch{Envelopes: make([]interface{}, 0, 10)},
+		batch:  &PubSubBatch{Envelopes: make([]proto.Message, 0, 10)},
 		ctxArr: make([]context.Context, 0, 10),
 	}
 }
 
 type produceMessage struct {
-	message interface{}
+	message proto.Message
 	ctx     context.Context
 }
 
@@ -171,7 +176,7 @@ func (p *BatchingProducer) getProduceProcessInfo(ctx context.Context) *ProducePr
 }
 
 // Produce a message to producer queue. The return info can be used to wait for the message to be published.
-func (p *BatchingProducer) Produce(ctx context.Context, message interface{}) (*ProduceProcessInfo, error) {
+func (p *BatchingProducer) Produce(ctx context.Context, message proto.Message) (*ProduceProcessInfo, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	info := &ProduceProcessInfo{
 		Finished:   make(chan struct{}),
@@ -301,7 +306,7 @@ func (p *BatchingProducer) failBatch(batchWrapper *pubsubBatchWithReceipts, err 
 
 // clearBatch clears the batch wrapper
 func (p *BatchingProducer) clearBatch(batchWrapper *pubsubBatchWithReceipts) {
-	batchWrapper.batch = &PubSubBatch{Envelopes: make([]interface{}, 0, 10)}
+	batchWrapper.batch = &PubSubBatch{Envelopes: make([]proto.Message, 0, 10)}
 	batchWrapper.ctxArr = batchWrapper.ctxArr[:0]
 }
 
@@ -393,6 +398,7 @@ loop:
 	return nil
 }
 
+// ProducerQueueFullException is returned when the producer queue exceeds its capacity.
 type ProducerQueueFullException struct {
 	topic string
 }
@@ -401,15 +407,18 @@ func (p *ProducerQueueFullException) Error() string {
 	return "Producer for topic " + p.topic + " has full queue"
 }
 
+// Is allows errors.Is checks against ProducerQueueFullException.
 func (p *ProducerQueueFullException) Is(target error) bool {
 	_, ok := target.(*ProducerQueueFullException)
 	return ok
 }
 
+// InvalidOperationException indicates that a method call was made in an invalid state.
 type InvalidOperationException struct {
 	Topic string
 }
 
+// Is allows errors.Is checks against InvalidOperationException.
 func (i *InvalidOperationException) Is(err error) bool {
 	_, ok := err.(*InvalidOperationException)
 	return ok
@@ -441,6 +450,7 @@ type boundedChannel[T any] struct {
 	left     *atomic.Bool
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) tryWrite(msg T) bool {
 	select {
 	case b.c <- msg:
@@ -453,6 +463,7 @@ func (b *boundedChannel[T]) tryWrite(msg T) bool {
 	}
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) tryRead() (msg T, ok bool) {
 	var msgDefault T
 	select {
@@ -463,6 +474,7 @@ func (b *boundedChannel[T]) tryRead() (msg T, ok bool) {
 	}
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) isComplete() bool {
 	select {
 	case <-b.quit:
@@ -472,16 +484,19 @@ func (b *boundedChannel[T]) isComplete() bool {
 	}
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) complete() {
 	b.once.Do(func() {
 		close(b.quit)
 	})
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) empty() bool {
 	return len(b.c) == 0
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) waitToRead() {
 	b.cond.L.Lock()
 	defer b.cond.L.Unlock()
@@ -491,6 +506,7 @@ func (b *boundedChannel[T]) waitToRead() {
 	b.left.Store(false)
 }
 
+//lint:ignore U1000 used via interface
 func (b *boundedChannel[T]) broadcast() {
 	b.left.Store(true)
 	b.cond.Broadcast()
@@ -517,6 +533,7 @@ type unboundedChannel[T any] struct {
 	left  *atomic.Bool
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) tryWrite(msg T) bool {
 	select {
 	case <-u.quit:
@@ -528,23 +545,25 @@ func (u *unboundedChannel[T]) tryWrite(msg T) bool {
 	}
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) tryRead() (T, bool) {
 	var msg T
 	tmp := u.queue.Pop()
 	if tmp == nil {
 		return msg, false
-	} else {
-		u.cond.Broadcast()
-		return tmp.(T), true
 	}
+	u.cond.Broadcast()
+	return tmp.(T), true
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) complete() {
 	u.once.Do(func() {
 		close(u.quit)
 	})
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) isComplete() bool {
 	select {
 	case <-u.quit:
@@ -554,10 +573,12 @@ func (u *unboundedChannel[T]) isComplete() bool {
 	}
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) empty() bool {
 	return u.queue.Empty()
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) waitToRead() {
 	u.cond.L.Lock()
 	defer u.cond.L.Unlock()
@@ -567,6 +588,7 @@ func (u *unboundedChannel[T]) waitToRead() {
 	u.left.Store(false)
 }
 
+//lint:ignore U1000 used via interface
 func (u *unboundedChannel[T]) broadcast() {
 	u.left.Store(true)
 	u.cond.Broadcast()
