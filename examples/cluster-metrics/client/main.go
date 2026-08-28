@@ -73,15 +73,15 @@ func setupLogger(c *cluster.Cluster) {
 	system.EventStream.Subscribe(func(event interface{}) {
 		switch msg := event.(type) {
 		case *cluster.MemberJoinedEvent:
-			log.Printf("Member Joined " + msg.Name())
+			log.Printf("Member Joined %s", msg.Name())
 		case *cluster.MemberLeftEvent:
-			log.Printf("Member Left " + msg.Name())
+			log.Printf("Member Left %s", msg.Name())
 		case *cluster.MemberRejoinedEvent:
-			log.Printf("Member Rejoined " + msg.Name())
+			log.Printf("Member Rejoined %s", msg.Name())
 		case *cluster.MemberUnavailableEvent:
-			log.Printf("Member Unavailable " + msg.Name())
+			log.Printf("Member Unavailable %s", msg.Name())
 		case *cluster.MemberAvailableEvent:
-			log.Printf("Member Available " + msg.Name())
+			log.Printf("Member Available %s", msg.Name())
 		case *cluster.ClusterTopology:
 			log.Printf("Cluster Topology Poll")
 		}

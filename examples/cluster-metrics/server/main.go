@@ -20,9 +20,9 @@ func Logger(next actor.ReceiverFunc) actor.ReceiverFunc {
 	fn := func(context actor.ReceiverContext, env *actor.MessageEnvelope) {
 		switch env.Message.(type) {
 		case *actor.Started:
-			log.Printf("actor started " + context.Self().String())
+			log.Printf("actor started %s", context.Self())
 		case *actor.Stopped:
-			log.Printf("actor stopped " + context.Self().String())
+			log.Printf("actor stopped %s", context.Self())
 		}
 		next(context, env)
 	}
@@ -40,7 +40,7 @@ func newHelloActor() actor.Actor {
 type HelloGrain struct{}
 
 func (h *HelloGrain) Init(ctx cluster.GrainContext) {
-	log.Printf("new grain id=%s", ctx.Identity)
+	log.Printf("new grain id=%s", ctx.Identity())
 }
 
 func (h *HelloGrain) Terminate(ctx cluster.GrainContext) {
