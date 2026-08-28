@@ -3,6 +3,8 @@ package remote
 import (
 	"fmt"
 
+	spb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -16,6 +18,10 @@ func newProtoSerializer() *protoSerializer {
 
 // Serialize converts a protobuf message into its binary form.
 func (p *protoSerializer) Serialize(msg interface{}) ([]byte, error) {
+	if grpcStatus, ok := msg.(*status.Status); ok {
+		msg = grpcStatus.Proto()
+	}
+
 	if message, ok := msg.(proto.Message); ok {
 		bytes, err := proto.Marshal(message)
 		if err != nil {
@@ -36,12 +42,21 @@ func (p *protoSerializer) Deserialize(typeName string, bytes []byte) (interface{
 
 	pm := mt.New().Interface()
 
-	err = proto.Unmarshal(bytes, pm)
-	return pm, err
+	if err := proto.Unmarshal(bytes, pm); err != nil {
+		return nil, err
+	}
+	if message, ok := pm.(*spb.Status); ok {
+		return status.FromProto(message), nil
+	}
+	return pm, nil
 }
 
 // GetTypeName returns the fully qualified name of a protobuf message.
 func (protoSerializer) GetTypeName(msg interface{}) (string, error) {
+	if grpcStatus, ok := msg.(*status.Status); ok {
+		msg = grpcStatus.Proto()
+	}
+
 	if message, ok := msg.(proto.Message); ok {
 		typeName := proto.MessageName(message)
 

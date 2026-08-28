@@ -5,6 +5,8 @@ import (
 
 	"github.com/keecon/protoactor-go/actor"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 //func TestJsonSerializer_round_trip(t *testing.T) {
@@ -54,6 +56,35 @@ func TestProtobufSerializer_Serialize_PID(t *testing.T) {
 	typed := res.(*actor.PID)
 	assert.Equal(t, "actor.PID", typeName)
 	assert.True(t, m.Equal(typed))
+}
+
+func TestProtobufSerializerRoundTripsGRPCStatus(t *testing.T) {
+	serializer := newProtoSerializer()
+	want := status.New(codes.InvalidArgument, "invalid request")
+
+	payload, err := serializer.Serialize(want)
+	if err != nil {
+		t.Fatalf("serialize gRPC status: %v", err)
+	}
+	typeName, err := serializer.GetTypeName(want)
+	if err != nil {
+		t.Fatalf("get gRPC status type name: %v", err)
+	}
+	if typeName != "google.rpc.Status" {
+		t.Fatalf("type name = %q, want %q", typeName, "google.rpc.Status")
+	}
+
+	value, err := serializer.Deserialize(typeName, payload)
+	if err != nil {
+		t.Fatalf("deserialize gRPC status: %v", err)
+	}
+	got, ok := value.(*status.Status)
+	if !ok {
+		t.Fatalf("deserialized type = %T, want *status.Status", value)
+	}
+	if got.Code() != want.Code() || got.Message() != want.Message() {
+		t.Fatalf("deserialized status = (%s, %q), want (%s, %q)", got.Code(), got.Message(), want.Code(), want.Message())
+	}
 }
 
 func TestSerialize_InvalidSerializerID(t *testing.T) {
