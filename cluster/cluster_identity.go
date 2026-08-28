@@ -10,7 +10,7 @@ func (ci *ClusterIdentity) AsKey() string {
 	return ci.Kind + "/" + ci.Identity
 }
 
-var ciExtensionId = ctxext.NextContextExtensionID()
+var ciExtensionID = ctxext.NextContextExtensionID()
 
 // ToShortString returns a compact string representation of the identity.
 func (ci *ClusterIdentity) ToShortString() string {
@@ -27,12 +27,12 @@ func NewClusterIdentity(identity string, kind string) *ClusterIdentity {
 
 // ExtensionID implements ctxext.Extension and returns the extension identifier.
 func (ci *ClusterIdentity) ExtensionID() ctxext.ContextExtensionID {
-	return ciExtensionId
+	return ciExtensionID
 }
 
 // GetClusterIdentity retrieves the ClusterIdentity from the context.
 func GetClusterIdentity(ctx actor.ExtensionContext) *ClusterIdentity {
-	if ext := ctx.Get(ciExtensionId); ext != nil {
+	if ext := ctx.Get(ciExtensionID); ext != nil {
 		if ci, ok := ext.(*ClusterIdentity); ok {
 			return ci
 		}

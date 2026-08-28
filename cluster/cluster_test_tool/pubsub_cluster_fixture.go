@@ -80,21 +80,21 @@ func (p *PubSubClusterFixture) RandomMember() *cluster.Cluster {
 }
 
 // VerifyAllSubscribersGotAllTheData verifies that all subscribers got all the data
-func (p *PubSubClusterFixture) VerifyAllSubscribersGotAllTheData(subscriberIds []string, numMessages int) {
+func (p *PubSubClusterFixture) VerifyAllSubscribersGotAllTheData(subscriberIDs []string, numMessages int) {
 	WaitUntil(p.t, func() bool {
 		p.DeliveriesLock.RLock()
 		defer p.DeliveriesLock.RUnlock()
-		return len(p.Deliveries) == numMessages*len(subscriberIds)
+		return len(p.Deliveries) == numMessages*len(subscriberIDs)
 	}, "All messages should be delivered ", DefaultWaitTimeout*1000)
 
 	p.DeliveriesLock.RLock()
 	defer p.DeliveriesLock.RUnlock()
 
-	expected := make([]Delivery, 0, len(subscriberIds))
-	for _, subscriberId := range subscriberIds {
+	expected := make([]Delivery, 0, len(subscriberIDs))
+	for _, subscriberID := range subscriberIDs {
 		for i := 0; i < numMessages; i++ {
 			expected = append(expected, Delivery{
-				Identity: subscriberId,
+				Identity: subscriberID,
 				Data:     i,
 			})
 		}
@@ -103,16 +103,16 @@ func (p *PubSubClusterFixture) VerifyAllSubscribersGotAllTheData(subscriberIds [
 }
 
 // SubscribeAllTo subscribes all the given subscribers to the given topic
-func (p *PubSubClusterFixture) SubscribeAllTo(topic string, subscriberIds []string) {
-	for _, subscriberId := range subscriberIds {
-		p.SubscribeTo(topic, subscriberId, PubSubSubscriberKind)
+func (p *PubSubClusterFixture) SubscribeAllTo(topic string, subscriberIDs []string) {
+	for _, subscriberID := range subscriberIDs {
+		p.SubscribeTo(topic, subscriberID, PubSubSubscriberKind)
 	}
 }
 
 // UnSubscribeAllFrom unsubscribes all the given subscribers from the given topic
-func (p *PubSubClusterFixture) UnSubscribeAllFrom(topic string, subscriberIds []string) {
-	for _, subscriberId := range subscriberIds {
-		p.UnSubscribeTo(topic, subscriberId, PubSubSubscriberKind)
+func (p *PubSubClusterFixture) UnSubscribeAllFrom(topic string, subscriberIDs []string) {
+	for _, subscriberID := range subscriberIDs {
+		p.UnSubscribeTo(topic, subscriberID, PubSubSubscriberKind)
 	}
 }
 

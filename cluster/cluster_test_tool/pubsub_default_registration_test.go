@@ -22,11 +22,11 @@ func (suite *PubSubDefaultRegistrationTestSuite) TearDownTest() {
 }
 
 func (suite *PubSubDefaultRegistrationTestSuite) TestPubSubWorksWithDefaultTopicRegistration() {
-	subscriberIds := suite.fixture.SubscriberIds("topic-default", 20)
+	subscriberIDs := suite.fixture.SubscriberIds("topic-default", 20)
 	const topic = "topic-default-registration"
 	const numMessage = 100
 
-	suite.fixture.SubscribeAllTo(topic, subscriberIds)
+	suite.fixture.SubscribeAllTo(topic, subscriberIDs)
 
 	for i := 0; i < numMessage; i++ {
 		data, err := suite.fixture.PublishData(topic, i)
@@ -34,7 +34,7 @@ func (suite *PubSubDefaultRegistrationTestSuite) TestPubSubWorksWithDefaultTopic
 		suite.Assert().NotNil(data, "response "+strconv.Itoa(i)+" should not be nil")
 	}
 
-	suite.fixture.VerifyAllSubscribersGotAllTheData(subscriberIds, numMessage)
+	suite.fixture.VerifyAllSubscribersGotAllTheData(subscriberIDs, numMessage)
 }
 
 // In order for 'go test' to run this suite, we need to create

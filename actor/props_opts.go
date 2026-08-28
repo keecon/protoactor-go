@@ -78,7 +78,7 @@ func WithSpawnFunc(spawn SpawnFunc) PropsOption {
 
 func WithFunc(f ReceiveFunc) PropsOption {
 	return func(props *Props) {
-		props.producer = func(system *ActorSystem) Actor { return f }
+		props.producer = func(_ *ActorSystem) Actor { return f }
 	}
 }
 

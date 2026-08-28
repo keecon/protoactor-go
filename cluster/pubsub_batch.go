@@ -28,8 +28,8 @@ func (b *PubSubBatch) Serialize() (remote.RootSerialized, error) {
 	}
 
 	for _, envelope := range b.Envelopes {
-		var serializerId int32
-		messageData, typeName, err := remote.Serialize(envelope, serializerId)
+		var serializerID int32
+		messageData, typeName, err := remote.Serialize(envelope, serializerID)
 		if err != nil {
 			return nil, err
 		}
@@ -48,7 +48,7 @@ func (b *PubSubBatch) Serialize() (remote.RootSerialized, error) {
 		batch.Envelopes = append(batch.Envelopes, &PubSubEnvelope{
 			MessageData:  messageData,
 			TypeId:       int32(typeIndex),
-			SerializerId: serializerId,
+			SerializerId: serializerID,
 		})
 	}
 	return batch, nil
