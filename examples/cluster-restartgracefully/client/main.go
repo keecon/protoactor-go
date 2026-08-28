@@ -7,16 +7,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
 
 	"cluster-restartgracefully/shared"
 
 	console "github.com/asynkron/goconsole"
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/consul"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/etcd"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/consul"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/etcd"
+	"github.com/keecon/protoactor-go/remote"
 )
 
 var (

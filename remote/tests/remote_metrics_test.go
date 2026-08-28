@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	remote "github.com/asynkron/protoactor-go/remote"
-	"github.com/asynkron/protoactor-go/testkit"
+	"github.com/keecon/protoactor-go/actor"
+	remote "github.com/keecon/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/testkit"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"

@@ -2,8 +2,8 @@
 package disthash
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
 )
 
 // IdentityLookup resolves cluster identities to actor PIDs using a partition manager.

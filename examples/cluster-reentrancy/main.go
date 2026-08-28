@@ -3,11 +3,11 @@ package main
 import (
 	fmt "fmt"
 
-	actor "github.com/asynkron/protoactor-go/actor"
-	cluster "github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/test"
-	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
-	"github.com/asynkron/protoactor-go/remote"
+	actor "github.com/keecon/protoactor-go/actor"
+	cluster "github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/test"
+	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/keecon/protoactor-go/remote"
 )
 
 func main() {

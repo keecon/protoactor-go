@@ -1,7 +1,7 @@
 package opentelemetry
 
 import (
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"go.opentelemetry.io/otel/propagation"
 )
 

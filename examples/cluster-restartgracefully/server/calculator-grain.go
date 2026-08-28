@@ -4,7 +4,7 @@ import (
 	"cluster-restartgracefully/cache"
 	"cluster-restartgracefully/shared"
 
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster"
 )
 
 type CalcGrain struct {

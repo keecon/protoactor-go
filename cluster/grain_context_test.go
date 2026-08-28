@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/testkit"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/testkit"
 	"github.com/stretchr/testify/assert"
 )
 

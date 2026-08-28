@@ -7,8 +7,8 @@ import (
         "time"
 
         console "github.com/asynkron/goconsole"
-        "github.com/asynkron/protoactor-go/actor"
-        "github.com/asynkron/protoactor-go/actor/middleware/opentelemetry"
+        "github.com/keecon/protoactor-go/actor"
+        "github.com/keecon/protoactor-go/actor/middleware/opentelemetry"
         "go.opentelemetry.io/otel"
         "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
         "go.opentelemetry.io/otel/propagation"

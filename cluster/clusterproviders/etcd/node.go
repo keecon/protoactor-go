@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster"
 )
 
 const (

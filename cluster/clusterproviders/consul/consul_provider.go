@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster"
 	"github.com/hashicorp/consul/api"
 )
 

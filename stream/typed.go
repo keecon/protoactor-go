@@ -1,7 +1,7 @@
 // Package stream bridges actors with Go channels.
 package stream
 
-import "github.com/asynkron/protoactor-go/actor"
+import "github.com/keecon/protoactor-go/actor"
 
 // TypedStream converts actor messages of type T into a channel.
 type TypedStream[T any] struct {

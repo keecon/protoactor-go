@@ -2,10 +2,10 @@ package disthash
 
 import (
 	"fmt"
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/test"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/test"
+	"github.com/keecon/protoactor-go/remote"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"sync"

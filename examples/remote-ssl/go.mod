@@ -1,5 +1,5 @@
 module remotessl
 
-replace github.com/asynkron/protoactor-go => ../..
+replace github.com/keecon/protoactor-go => ../..
 
 go 1.21

@@ -9,9 +9,9 @@ require (
 	google.golang.org/protobuf v1.36.10
 )
 
-replace github.com/asynkron/protoactor-go => ../..
+replace github.com/keecon/protoactor-go => ../..
 
-require github.com/asynkron/protoactor-go v0.0.0-20240116091649-93e384a26d0d
+require github.com/keecon/protoactor-go v0.0.0-20240116091649-93e384a26d0d
 
 require (
 	github.com/Workiva/go-datastructures v1.1.6 // indirect

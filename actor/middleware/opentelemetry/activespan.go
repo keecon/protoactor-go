@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )

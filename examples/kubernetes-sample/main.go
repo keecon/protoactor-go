@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/k8s"
-	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/k8s"
+	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/keecon/protoactor-go/remote"
 	"k8s.io/utils/env"
 )
 

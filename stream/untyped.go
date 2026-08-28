@@ -1,6 +1,6 @@
 package stream
 
-import "github.com/asynkron/protoactor-go/actor"
+import "github.com/keecon/protoactor-go/actor"
 
 // UntypedStream converts all actor messages into a channel of empty interface.
 type UntypedStream struct {

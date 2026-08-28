@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	clustering "github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/actor"
+	clustering "github.com/keecon/protoactor-go/cluster"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )

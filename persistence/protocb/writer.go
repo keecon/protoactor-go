@@ -3,7 +3,7 @@ package protocb
 import (
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 )
 
 type write struct {

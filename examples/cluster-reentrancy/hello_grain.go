@@ -3,7 +3,7 @@ package main
 import (
 	errors "errors"
 
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster"
 )
 
 type HelloGrain struct{}

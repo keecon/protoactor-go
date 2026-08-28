@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/asynkron/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/actor"
 	"github.com/opentracing/opentracing-go"
 )
 

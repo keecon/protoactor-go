@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
 	"github.com/google/uuid"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

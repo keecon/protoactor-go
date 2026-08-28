@@ -4,11 +4,11 @@ go 1.24.0
 
 require (
 	github.com/asynkron/goconsole v0.0.0-20160504192649-bfa12eebf716
-	github.com/asynkron/protoactor-go v0.0.0-20250813145324-74dace48f110
+	github.com/keecon/protoactor-go v0.0.0-20250813145324-74dace48f110
 	google.golang.org/protobuf v1.36.7
 )
 
-replace github.com/asynkron/protoactor-go => ../..
+replace github.com/keecon/protoactor-go => ../..
 
 require (
 	github.com/Workiva/go-datastructures v1.1.5 // indirect

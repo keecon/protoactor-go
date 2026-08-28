@@ -8,8 +8,8 @@ package hello
 
 import (
 	fmt "fmt"
-	actor "github.com/asynkron/protoactor-go/actor"
-	cluster "github.com/asynkron/protoactor-go/cluster"
+	actor "github.com/keecon/protoactor-go/actor"
+	cluster "github.com/keecon/protoactor-go/cluster"
 	proto "google.golang.org/protobuf/proto"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
 	slog "log/slog"

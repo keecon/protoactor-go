@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	actorotel "github.com/asynkron/protoactor-go/actor/middleware/opentelemetry"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/cluster/clusterproviders/test"
-	"github.com/asynkron/protoactor-go/cluster/identitylookup/disthash"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	actorotel "github.com/keecon/protoactor-go/actor/middleware/opentelemetry"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/cluster/clusterproviders/test"
+	"github.com/keecon/protoactor-go/cluster/identitylookup/disthash"
+	"github.com/keecon/protoactor-go/remote"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"

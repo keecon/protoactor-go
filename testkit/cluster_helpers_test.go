@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/asynkron/protoactor-go/actor"
-	"github.com/asynkron/protoactor-go/cluster"
-	"github.com/asynkron/protoactor-go/remote"
+	"github.com/keecon/protoactor-go/actor"
+	"github.com/keecon/protoactor-go/cluster"
+	"github.com/keecon/protoactor-go/remote"
 )
 
 func TestExpectMemberToExist(t *testing.T) {
