@@ -2,11 +2,13 @@ name: checks
 
 on:
   push:
-    branches:
-    - main
+    branches: [v0.2.x]
   pull_request:
-    branches:
-    - main
+    branches: [v0.2.x]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   TERM: xterm
@@ -14,24 +16,19 @@ env:
 
 jobs:
   test:
-    name: run-testcases
+    name: Go ${{ matrix.go_version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         go_version: ['1.18', '1.19']
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ matrix.go_version }}
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          cache: true
+          cache-dependency-path: go.sum
       - name: start services
         run: docker compose up -d
       - name: run testcases
@@ -42,5 +39,3 @@ jobs:
         run: make lint
       - name: vet
         run: make vet
-
-

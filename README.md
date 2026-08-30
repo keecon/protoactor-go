@@ -1,3 +1,7 @@
+> **Maintenance status:** `v0.2.x` is a frozen legacy-compatibility line. It receives changes only after an explicit
+> backport request, reviewed and tested against this branch. It does not receive routine runtime, dependency, feature,
+> or security updates. Use [`main`](https://github.com/keecon/protoactor-go/tree/main) for active development.
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/keecon/protoactor-go)](https://goreportcard.com/report/github.com/keecon/protoactor-go)
 [![GoDoc](https://godoc.org/github.com/keecon/protoactor-go?status.svg)](https://godoc.org/github.com/keecon/protoactor-go)
 [![checks](https://github.com/keecon/protoactor-go/actions/workflows/checks.yml/badge.svg)](https://github.com/keecon/protoactor-go/actions/workflows/checks.yml)
