@@ -26,6 +26,7 @@ gRPC where applicable.
 
 `main` is the only actively supported line. New release tags start at `v0.5.0`. Until a `v0.5.0` tag exists, `main`
 is a development line and consumers should pin an audited commit instead of tracking the branch tip.
+Release-line changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 The `v0.2.x` and `v0.3.x` branches exist for projects that cannot yet migrate. They do not receive routine runtime,
 dependency, feature, or security updates. A requested backport is reviewed against the target branch, adapted when
@@ -71,9 +72,14 @@ persistence, and any remote or cluster protocols it uses.
 
 ## Go versions
 
-The active line is validated with the currently supported Go release lines configured in
-[the checks workflow](.github/workflows/checks.yml). The `go` directive in `go.mod` is the module's language/toolchain
-floor; it is not a promise that an otherwise unsupported Go release receives maintenance here.
+The active line supports the two most recent major Go releases and uses the older of those releases as its
+language/toolchain floor. The current floor is Go 1.26, while [the checks workflow](.github/workflows/checks.yml)
+validates the latest patch releases of Go 1.26 and Go 1.27. When a new major Go release changes the official
+two-release support window, `main` advances its floor to the new lower release. The root module and independent
+example modules use the same floor.
+
+The `go` directive in `go.mod` expresses the minimum supported toolchain; use the latest patch release within a
+supported line to receive Go security and critical bug fixes.
 
 Legacy branches retain their historical Go and dependency baselines. Their own workflow files are the source of truth
 for backport validation.
@@ -131,6 +137,7 @@ Run the short test suite and static checks:
 make test-short
 make vet
 make lint
+make vuln
 ```
 
 Some cluster, scheduler, remote, and persistence integration tests require the services declared in

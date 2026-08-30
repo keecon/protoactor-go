@@ -14,6 +14,10 @@ contributions are licensed under Apache-2.0 and must preserve existing copyright
 
 New release tags start at `v0.5.0`. Until that tag exists, `main` remains an active development line.
 
+The `main` branch supports the two most recent major Go releases and uses the older release as its minimum Go version.
+When Go publishes a new major release, update the root module, independent example modules, and CI matrix together.
+Legacy branches retain their own historical Go baselines.
+
 ## Development workflow
 
 1. Start from the current target branch and create a focused topic branch.
@@ -40,6 +44,7 @@ go build ./...
 make test-short
 make vet
 make lint
+make vuln
 ```
 
 Run targeted tests for every changed package. Changes to cluster, scheduler, remote, or persistence behavior may also
