@@ -6,6 +6,8 @@ backports.
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-08-30
+
 ### Added
 
 - Added Go vulnerability scanning for both supported Go release lines on pushes, pull requests, and a weekly schedule.
@@ -32,4 +34,5 @@ backports.
 - `v0.2.x` and `v0.3.x` remain available for legacy consumers but do not receive routine runtime, dependency, or
   security updates.
 
-[Unreleased]: https://github.com/keecon/protoactor-go/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/keecon/protoactor-go/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/keecon/protoactor-go/compare/v0.3.0...v0.5.0
