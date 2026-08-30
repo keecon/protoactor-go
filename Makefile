@@ -1,5 +1,8 @@
 .PHONY: all test
 
+GOTESTSUM_VERSION := v1.13.0
+REVIVE_VERSION := v1.16.0
+
 all: build
 
 proto:
@@ -20,8 +23,7 @@ test:
 	@go test $(PACKAGES) -timeout=30s
 
 test2:
-	@go install gotest.tools/gotestsum@latest
-	@gotestsum --format testname $(PACKAGES)
+	@go run gotest.tools/gotestsum@$(GOTESTSUM_VERSION) --format testname $(PACKAGES)
 
 test-short:
 	@go test $(PACKAGES) -timeout=30s -short
@@ -30,8 +32,7 @@ test-race:
 	@go test $(PACKAGES) -timeout=2m -race
 
 lint:
-	@go install github.com/mgechev/revive@latest
-	@revive -formatter friendly $(PACKAGES)
+	@go run github.com/mgechev/revive@$(REVIVE_VERSION) -formatter friendly $(PACKAGES)
 
 vet:
 	@go vet $(PACKAGES)

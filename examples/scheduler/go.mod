@@ -1,6 +1,6 @@
 module scheduler
 
-go 1.25.3
+go 1.26.0
 
 require (
 	github.com/asynkron/goconsole v0.0.0-20160504192649-bfa12eebf716
