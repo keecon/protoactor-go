@@ -26,6 +26,7 @@ gRPC where applicable.
 
 `main` is the only actively supported line. New release tags start at `v0.5.0`. Until a `v0.5.0` tag exists, `main`
 is a development line and consumers should pin an audited commit instead of tracking the branch tip.
+Release-line changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 The `v0.2.x` and `v0.3.x` branches exist for projects that cannot yet migrate. They do not receive routine runtime,
 dependency, feature, or security updates. A requested backport is reviewed against the target branch, adapted when
