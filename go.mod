@@ -26,10 +26,10 @@ require (
 require (
 	github.com/go-zookeeper/zk v1.0.4
 	github.com/golang/mock v1.6.0
-	github.com/lithammer/shortuuid/v4 v4.2.0
+	github.com/lithammer/shortuuid/v4 v4.3.0
 	github.com/twmb/murmur3 v1.1.8
 	go.etcd.io/etcd/client/v3 v3.7.1
-	golang.org/x/exp v0.0.0-20251002181428-27f1f14c8bb9
+	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa
 	golang.org/x/sync v0.22.0
 	k8s.io/api v0.34.2
 	k8s.io/apimachinery v0.34.2
@@ -38,8 +38,8 @@ require (
 
 require (
 	github.com/labstack/echo/v4 v4.15.4
-	github.com/lmittmann/tint v1.1.2
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa
+	github.com/lmittmann/tint v1.2.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260825221802-da73d73af1c5
 )
 
 require (
