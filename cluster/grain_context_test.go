@@ -32,7 +32,10 @@ func TestVirtualActorContextHasClusterIdentity(t *testing.T) {
 	c.StartMember()
 	cp.publishClusterTopologyEvent()
 
-	c.ActorSystem.Root.Spawn(actor.PropsFromProducer(func() actor.Actor { return probe }))
+	probePID := c.ActorSystem.Root.Spawn(actor.PropsFromProducer(func() actor.Actor { return probe }))
+	c.ActorSystem.Root.Send(probePID, struct{}{})
+	_, err := testkit.GetNextMessageOf[struct{}](probe, time.Second)
+	assert.NoError(t, err)
 
 	pid := c.Get(actorID, kindName)
 	assert.NotNil(t, pid)
