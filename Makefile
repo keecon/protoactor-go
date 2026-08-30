@@ -20,7 +20,7 @@ test:
 	@go test $(PACKAGES) -timeout=30s
 
 test2:
-	@go install gotest.tools/gotestsum@latest
+	@go install gotest.tools/gotestsum@v1.12.0
 	@gotestsum --format testname $(PACKAGES)
 
 test-short:
@@ -30,7 +30,7 @@ test-race:
 	@go test $(PACKAGES) -timeout=30s -race
 
 lint:
-	@go install github.com/mgechev/revive@latest
+	@go install github.com/mgechev/revive@v1.3.1
 	@revive -formatter friendly $(PACKAGES)
 
 vet:
