@@ -136,6 +136,7 @@ Run the short test suite and static checks:
 make test-short
 make vet
 make lint
+make vuln
 ```
 
 Some cluster, scheduler, remote, and persistence integration tests require the services declared in

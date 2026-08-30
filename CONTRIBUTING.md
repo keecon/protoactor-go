@@ -44,6 +44,7 @@ go build ./...
 make test-short
 make vet
 make lint
+make vuln
 ```
 
 Run targeted tests for every changed package. Changes to cluster, scheduler, remote, or persistence behavior may also

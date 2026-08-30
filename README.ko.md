@@ -132,6 +132,7 @@ go build ./...
 make test-short
 make vet
 make lint
+make vuln
 ```
 
 일부 클러스터, 스케줄러, 원격 통신 및 영속성 통합 테스트에는 로컬 Consul을 포함해

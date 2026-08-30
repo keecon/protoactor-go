@@ -1,7 +1,8 @@
-.PHONY: all test
+.PHONY: all test vuln
 
 GOTESTSUM_VERSION := v1.13.0
 REVIVE_VERSION := v1.16.0
+GOVULNCHECK_VERSION := v1.7.0
 
 all: build
 
@@ -36,6 +37,9 @@ lint:
 
 vet:
 	@go vet $(PACKAGES)
+
+vuln:
+	@go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 bench:
 	@go test $(PACKAGES) -run=^$$ -bench=.
