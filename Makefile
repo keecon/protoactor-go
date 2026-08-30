@@ -37,7 +37,7 @@ vet:
 	@go vet $(PACKAGES)
 
 bench:
-	@go test $(PACKAGES) -bench=.
+	@go test $(PACKAGES) -run=^$$ -bench=.
 
 # }}} test
 
@@ -46,7 +46,7 @@ bench:
 packages_benchmark := $(shell go list ./... | grep -v "/log")
 
 benchmark:
-	go test -benchmem -run=^$ $(packages_benchmark) -bench ^Benchmark$(t).*$
+	go test -benchmem -run=^$$ $(packages_benchmark) -bench ^Benchmark$(t).*$$
 # }}}
 
 # {{{ docker-env
